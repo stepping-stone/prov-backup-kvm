@@ -28,11 +28,11 @@ package Provisioning::Backup::KVM::Util;
 
 our @ISA = qw(Exporter);
 
-our %EXPORT_TAGS = ( 'all' => [ qw(setPermissionOnFile createDirectory getMachineByBackendEntry getConfigEntry getDiskImagesByMachine restoreVMFromStateFile defineAndStartMachine defineMachine startMachine getIntermediatePath) ] );
+our %EXPORT_TAGS = ( 'all' => [ qw(checkRequiredBackupSpace calculateRequiredFreeSpace setPermissionOnFile createDirectory getMachineByBackendEntry getConfigEntry getDiskImagesByMachine restoreVMFromStateFile defineAndStartMachine defineMachine startMachine getIntermediatePath) ] );
 
 our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
 
-our @EXPORT = qw(setPermissionOnFile createDirectory getMachineByBackendEntry getConfigEntry getDiskImagesByMachine restoreVMFromStateFile defineAndStartMachine defineMachine startMachine getIntermediatePath);
+our @EXPORT = qw(checkRequiredBackupSpace calculateRequiredFreeSpace setPermissionOnFile createDirectory getMachineByBackendEntry getConfigEntry getDiskImagesByMachine restoreVMFromStateFile defineAndStartMachine defineMachine startMachine getIntermediatePath);
 
 our $VERSION = '0.01';
 
@@ -48,6 +48,7 @@ use XML::Simple;
 use POSIX;
 use Switch;
 use File::Basename;
+use Filesys::Df;
 
 # Load variable libs:
 # Backend
@@ -835,6 +836,135 @@ sub setPermissionOnFile
     }
 
     return;
+
+}
+
+################################################################################
+# calculateRequiredFreeSpace
+################################################################################
+# Description:
+#  
+################################################################################
+
+sub calculateRequiredFreeSpace
+{
+
+    my ( $machine, $machine_name ,@images ) = @_;
+
+    my $total_space = 0;
+
+    # Log what we do
+    logger("debug","Getting required backup space for machine $machine_name");
+
+    # Go through all disk images and sum up the physical space used by them
+    foreach my $disk ( @images )
+    {
+        # Get the disk size and add it to the total space
+        my $info;
+        eval
+        {
+            $info = $machine->get_block_info( $disk );
+        };
+
+        # Test if there was an error
+        $libvirt_err = $@;
+        if ( $libvirt_err )
+        {
+            my $error_message = $libvirt_err->message;
+            $error = $libvirt_err->code;
+            logger("error","Could not get disk image information for disk "
+                  ."$disk");
+            logger("error","Error from libvirt (".$error
+                  ."): libvirt says: $error_message" );
+            return undef;
+        }
+
+        my $tmp = 0;
+        $tmp = $info->{physical};
+
+        # If the size is not bigger than 0 we have some strange problem
+        unless ( $tmp > 0 )
+        {
+            logger("error","Disk image size from disk $disk seems to be zero, "
+                  ."something with this disk image is not correct!" );
+            return undef;
+        }
+
+        # Add the physical used space to the total space
+        $total_space += $tmp;
+    }
+
+    # Now get the memory and cpu size and add it to the total space
+    my $mem_info;
+    eval
+    {
+        $mem_info = $machine->get_info();
+    };
+
+    my $libvirt_err = $@;
+               
+    # Test if there was an error
+    if ( $libvirt_err )
+    {
+        my $error_message = $libvirt_err->message;
+        my $error = $libvirt_err->code;
+        logger("error","Error from libvirt (".$error
+              ."): libvirt says: $error_message. Cannot get memory information"
+              ." about the machine");
+        return undef;
+    }
+
+    # Get the current allocated memory of the domain in KB
+    my $ram = $mem_info->{memory};
+
+    # Multiply the ram with 1024 to obtain the size in bytes (since the disk 
+    # image sizes are specified in bytes)
+    $ram = $ram * 1024;
+   
+    # Add it to the total space
+    $total_space += $ram;
+
+    # Add 5% of security to the total space and return this number
+    $total_space = $total_space * 1.05;
+
+    return $total_space;
+
+}
+
+################################################################################
+# checkRequiredBackupSpace
+################################################################################
+# Description:
+#  
+################################################################################
+sub checkRequiredBackupSpace
+{
+    my ( $directory, $space_needed ) = @_;
+
+    # Get filesytem information for the specified directory (size in KB)
+    my $file_system_info = df( $directory );
+    
+    # Get the available space on this filesystem
+    my $available = $file_system_info->{bavail};
+
+    # The space_needed is passed in bytes, the available is in KB so multiply 
+    # it by 1024
+    $available = $available * 1024;
+
+    # Check if more is available than needed
+    if ( $available > $space_needed )
+    {
+        logger("debug","For the current backup there are $space_needed bytes "
+              ."required, currently available: $available. There is enough "
+              ."space left on $directory to proceed with the backup");
+        return Provisioning::Backup::KVM::Constants::TRUE;
+    } else
+    {
+         logger("debug","For the current backup there are $space_needed bytes "
+              ."required, currently available: $available. There is NOT enough "
+              ."space left on $directory to proceed with the backup");
+        return Provisioning::Backup::KVM::Constants::FALSE;
+    }
 
 }
 

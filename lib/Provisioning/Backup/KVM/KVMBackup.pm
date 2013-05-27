@@ -165,8 +165,85 @@ sub backup
         case "snapshotting" {   # Measure the start time:
                                 my $start_time = time;
 
-                                # we'll use that later
-                                my $retain_directory;
+                                # Will be used to copy the file from the ram 
+                                # disk to the retain location if not already
+                                # there.
+                                my $retain_directory = getValue($config_entry,
+                                                   "sstBackupRetainDirectory");
+
+                                # Remove the file:// in front of the retain
+                                # directory
+                                $retain_directory =~ s/file:\/\///;
+
+                                # Backup directory to check if there is enough
+                                # space left there.
+                                my $backup_directory = getValue($config_entry,
+                                                      "sstBackupRootDirectory");
+
+                                # Get the protocol to export the files
+                                $backup_directory =~m/([\w\+]+\:\/\/)([\w\/]+)/;
+                                $backup_directory = $2;
+                                my $protocol = $1;
+
+                                # Test if the protocol was found i.e. if the 
+                                # backup directroy is set up correct
+                                unless ( $protocol )
+                                {
+                                    logger("error","No protocol specified in "
+                                          ."the sstBackupRootDirectory ("
+                                          .getValue($config_entry,
+                                                    "sstBackupRootDirectory")
+                                          .") attribute. Please specify a "
+                                          ."protocol as for example file:// or "
+                                          ."similar");
+                                    return Provisioning::Backup::KVM::Constants::UNSUPPORTED_CONFIGURATION_PARAMETER;
+                                }
+
+                                # Check if there is enough space available to 
+                                # proceed with this machine
+                                my $space = calculateRequiredFreeSpace($machine,
+                                                                 $machine_name,
+                                                                 @disk_images );
+
+                                unless ( defined( $space ) )
+                                {
+                                    logger("error","Could not determine "
+                                          ."the required backup space for "
+                                          ."machine $machine_name. Will not "
+                                          ."process this machine for security/"
+                                          ."consistency reasons");
+                                    return Provisioning::Backup::KVM::Constants::NO_DISK_SPACE_INFORMATION;
+                                }
+
+                                if (!checkRequiredBackupSpace($retain_directory,
+                                                              $space ) )
+                                {
+                                    # Log that there is no disk space and return
+                                    # the corresponding error
+                                    logger("error","There is not enough disk "
+                                          ."space available on the "
+                                          ."virtualization partition to proceed"
+                                          ." with the backup for machine "
+                                          ."$machine_name"
+                                          );
+                                    return Provisioning::Backup::KVM::Constants::NOT_ENOUGH_DISK_SPACE;
+                                }
+
+                                # Check if there is enough space available to 
+                                # proceed with this machine
+                                if (!checkRequiredBackupSpace($backup_directory,
+                                                              $space ) )
+                                {
+                                    # Log that there is no disk space and return
+                                    # the corresponding error
+                                    logger("error","There is not enough disk "
+                                          ."space available on the "
+                                          ."backup partition to proceed with "
+                                          ."the backup for machine "
+                                          ."$machine_name"
+                                          );
+                                    return Provisioning::Backup::KVM::Constants::NOT_ENOUGH_DISK_SPACE;
+                                }
 
                                 # Was the machine running before the backup?
                                 my $running_before_snapshot = machineIsRunning($machine, $machine_name);
@@ -364,15 +441,6 @@ sub backup
                                 # Remove the zabbix file
                                 unlink $zabbix_file_name;
 
-                                # Copy the file from the ram disk to the retain
-                                # location if not already there
-                                $retain_directory = getValue($config_entry,
-                                                   "sstBackupRetainDirectory");
-
-                                # Remove the file:// in front of the retain
-                                # directory
-                                $retain_directory =~ s/file:\/\///;
-
                                 unless ( $state_file =~ m/$retain_directory/)
                                 {
                                     # Log what we are doing
@@ -488,6 +556,98 @@ sub backup
                                 # directory
                                 $retain_directory =~ s/file:\/\///;
 
+                                # Backup directory to check if there is enough
+                                # space left there.
+                                my $backup_directory = getValue($config_entry,
+                                                      "sstBackupRootDirectory");
+
+                                # Get the protocol to export the files
+                                $backup_directory =~m/([\w\+]+\:\/\/)([\w\/]+)/;
+                                $backup_directory = $2;
+                                my $protocol = $1;
+
+                                # Check if there is enough space available to 
+                                # proceed with this machine
+                                my $space = calculateRequiredFreeSpace($machine,
+                                                                 $machine_name,
+                                                                 @disk_images );
+
+                                unless ( defined( $space ) )
+                                {
+                                    logger("error","Could not determine "
+                                          ."the required backup space for "
+                                          ."machine $machine_name. Will not "
+                                          ."process this machine for security/"
+                                          ."consistency reasons");
+                                    return Provisioning::Backup::KVM::Constants::NO_DISK_SPACE_INFORMATION;
+                                }
+
+                                if (!checkRequiredBackupSpace($retain_directory,
+                                                              $space ) )
+                                {
+                                    # Log that there is no disk space and return
+                                    # the corresponding error
+                                    my $needed = $space / 1024 / 1024 / 1024;
+                                    $needed += 1;
+                                    $needed = int($needed);
+                                    my $hostname = hostname;
+                                    my $err_mess = "There is not enough disk "
+                                          ."space available on the "
+                                          ."virtualization partition to proceed"
+                                          ." with the merge process for machine "
+                                          ."$machine_name. To solve this "
+                                          ."problem you need to extend the "
+                                          ."filesystem by at least $needed GB"
+                                          ." and then execute the "
+                                          ."following command(s) on the host "
+                                          ."$hostname:\n\n";
+
+                                    # We need to generate the commands for each
+                                    # disk image:
+                                    my $counter = 0;
+                                    foreach my $disk (@disk_images)
+                                    {
+                                        $err_mess .="virsh qemu-monitor-command"
+                                                   ." $machine_name --hmp 'bloc"
+                                                   ."k_stream drive-virtio-disk"
+                                                   ."$counter'\n";
+                                        $counter++;
+                                    }
+
+                                    # Write the error message ... 
+                                    $err_mess .= "\nAfter executing this/these "
+                                                ."command(s), you need to wait "
+                                                ."for the block job to finish."
+                                                ." To check if the job has "
+                                                ."finished, you need to compare"
+                                                ." the disk image size at the "
+                                                ."original location (ls -al "
+                                                .$disk_images[0].") and the one"
+                                                ." at the retain location (ls -"
+                                                ."al ".$retain_directory."/"
+                                                .$intermediate_path."/"
+                                                .basename($disk_images[0])."). "
+                                                ."If all jobs have finished, you"
+                                                ." now need to copy the folder "
+                                                ."from the retain to the backup"
+                                                ." location:\n\nmkdir -p "
+                                                .$backup_directory."/"
+                                                .$intermediate_path."\ncp -p "
+                                                .$retain_directory."/"
+                                                .$intermediate_path." "
+                                                .$backup_directory."/"
+                                                .$intermediate_path."\n"
+                                                ."\nand finally remove the fold"
+                                                ."er at the retain location:\n"
+                                                ."\nrm-rf ".$retain_directory
+                                                ."/$intermediate_path\n\nFor "
+                                                ."more information please visit"
+                                                .":\nhttps://...";
+                                    
+                                    logger("error", $err_mess );
+                                    return Provisioning::Backup::KVM::Constants::NOT_ENOUGH_DISK_SPACE;
+                                }
+
                                 # Get the bandwidth in MB
                                 my $bandwidth = getValue($config_entry,"sstVirtualizationBandwidthMerge");
 
@@ -592,20 +752,6 @@ sub backup
                                 $backup_directory = $2;
                                 my $protocol = $1;
 
-                                # Test if the protocol was found i.e. if the 
-                                # backup directroy is set up correct
-                                unless ( $protocol )
-                                {
-                                    logger("error","No protocol specified in "
-                                          ."the sstBackupRootDirectory ("
-                                          .getValue($config_entry,
-                                                    "sstBackupRootDirectory")
-                                          .") attribute. Please specify a "
-                                          ."protocol as for example file:// or "
-                                          ."similar");
-                                    return Provisioning::Backup::KVM::Constants::UNSUPPORTED_CONFIGURATION_PARAMETER;
-                                }
-
                                 # Remove file:// in front to test
                                 if ( $retain_location =~ m/^file\:\/\// )
                                 {
@@ -621,6 +767,81 @@ sub backup
                                           .$retain_location.") does not"
                                           );
                                     return Provisioning::Backup::KVM::Constants::UNSUPPORTED_CONFIGURATION_PARAMETER;
+                                }
+
+                                # Test if the protocol was found i.e. if the 
+                                # backup directroy is set up correct
+                                unless ( $protocol )
+                                {
+                                    logger("error","No protocol specified in "
+                                          ."the sstBackupRootDirectory ("
+                                          .getValue($config_entry,
+                                                    "sstBackupRootDirectory")
+                                          .") attribute. Please specify a "
+                                          ."protocol as for example file:// or "
+                                          ."similar");
+                                    return Provisioning::Backup::KVM::Constants::UNSUPPORTED_CONFIGURATION_PARAMETER;
+                                }
+
+                                # Check if there is enough space available to 
+                                # proceed with this machine
+                                my $space = calculateRequiredFreeSpace($machine,
+                                                                 $machine_name,
+                                                                 @disk_images );
+
+                                unless ( defined( $space ) )
+                                {
+                                    logger("error","Could not determine "
+                                          ."the required backup space for "
+                                          ."machine $machine_name. Will not "
+                                          ."process this machine for security/"
+                                          ."consistency reasons");
+                                    return Provisioning::Backup::KVM::Constants::NO_DISK_SPACE_INFORMATION;
+                                }
+
+                                if (!checkRequiredBackupSpace($backup_directory,
+                                                              $space ) )
+                                {
+                                    # Log that there is no disk space and return
+                                    # the corresponding error
+                                    logger("error","There is not enough disk "
+                                          ."space available on the "
+                                          ."backup partition to proceed"
+                                          ." with the backup for machine "
+                                          ."$machine_name. The folder in the "
+                                          ."retain location ($retain_location/"
+                                          ."$intermediate_path) will be deleted"
+                                          );
+
+                                    # Delete all files in the retain directory 
+                                    my $location = $retain_location."/"
+                                                  .$intermediate_path;
+                                    foreach my $file ( <$location/*>)
+                                    {
+                                        if ( $error = deleteFile( $file ) )
+                                        {
+                                            # If an error occured log it and return 
+                                            logger("warning","Deleting file $file "
+                                                  ."failed with return code: $error");
+                                        } 
+                                        logger("debug","File $file successfully "
+                                              ."deleted");
+                                    }
+
+                                    # And finally remove the folder
+                                    my @args = ("rmdir",$retain_location."/".
+                                                        $intermediate_path);
+                                    ($output,$error) = executeCommand( $gateway_connection, @args );
+
+                                    # Check if there was an error
+                                    if ( $error )
+                                    {
+                                        # Log it
+                                        logger("warning","Could not remove the just"
+                                              ." created retain direcory: $output");
+                                    }
+
+                                    return Provisioning::Backup::KVM::Constants::NOT_ENOUGH_DISK_SPACE;
                                 }
 
                                 # Get disk image and state file
@@ -1202,7 +1423,7 @@ sub mergeDiskImages
     {
         # Print what we would do to merge the images
         print "DRY-RUN:  ";
-        print "virsh qemu-monitor-command --hmp $machine_name 'block_stream ";
+        print "virsh qemu-monitor-command $machine_name --hmp 'block_stream ";
         print "drive-virtio-disk0' --speed $bandwidth";
         print "\n\n";
 

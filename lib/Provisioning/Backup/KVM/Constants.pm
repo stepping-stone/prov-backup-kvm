@@ -116,7 +116,8 @@ use constant CANNOT_WORK_ON_UNDEFINED_OBJECT            => 43;
 use constant CANNOT_READ_STATE_FILE                     => 44;
 use constant CANNOT_READ_XML_FILE                       => 45;
 use constant NOT_ALL_FILES_DELETED_FROM_RETAIN_LOCATION => 46;
-
+use constant NOT_ENOUGH_DISK_SPACE                      => 47;
+use constant NO_DISK_SPACE_INFORMATION                  => 48;
 1;
 
 __END__

@@ -128,7 +128,7 @@ sub getMachineByBackendEntry
 sub getConfigEntry
 {
 
-    my ($entry, $cfg) = @_;
+    my ( $entry, $cfg, $machine_name ) = @_;
 
     # Create the var which will be returned and will contain the config entry
     my $config_entry;
@@ -148,7 +148,7 @@ sub getConfigEntry
         # parent entry is the configuration entry, return it
         if ( $value eq "sstVirtualizationBackupObjectClass" )
         {
-            logger("info","Backup configuration is VM specific");
+            logger("info","$machine_name: Backup configuration is VM specific");
             return $parent_entry;
         }
         
@@ -177,7 +177,7 @@ sub getConfigEntry
     if ( @entries > 1 ) 
     {
         # Log and return error
-        logger("error","There is something very strange, more than one pool "
+        logger("error","$machine_name: There is something very strange, more than one pool "
               ."with name '$vm_pool_name' found. Cannot return configuration "
               ."entry. Stopping here.");
         return Provisioning::Backup::KVM::Constants::CANNOT_FIND_CONFIGURATION_ENTRY;
@@ -187,7 +187,7 @@ sub getConfigEntry
     # entry so return it
     if ( @entries == 1 )
     {
-        logger("info","Backup configuration is VM-Pool specific");
+        logger("info","$machine_name: Backup configuration is VM-Pool specific");
         return $entries[0];
     }
 
@@ -205,21 +205,21 @@ sub getConfigEntry
     if ( @entries > 1 ) 
     {
         # Log and return error
-        logger("error","There is something very strange, more than one global "
+        logger("error","$machine_name: There is something very strange, more than one global "
               ."configuration found. Cannot return configuration "
               ."entry. Stopping here.");
         return Provisioning::Backup::KVM::Constants::CANNOT_FIND_CONFIGURATION_ENTRY;
     } elsif ( @entries == 0 )
     {
         # Log and return error
-        logger("error","Global configuartion ($global_conf) not found, cannot "
+        logger("error","$machine_name: Global configuartion ($global_conf) not found, cannot "
               ."return configuration entry. Stopping here.");
         return Provisioning::Backup::KVM::Constants::CANNOT_FIND_CONFIGURATION_ENTRY;
     }
 
     # Or we are lucky and can return the configuration entry which is the global
     # one
-    logger("info","Backup configuration is default FOSS-Cloud configuration");
+    logger("info","$machine_name: Backup configuration is default FOSS-Cloud configuration");
     return $entries[0];
 
 }
@@ -234,7 +234,7 @@ sub getConfigEntry
 
 sub getDiskImagesByMachine
 {
-    my ($machine, $entry, $machine_name, $backend) = @_;
+    my ($machine, $entry, $machine_name, $backend, $machine_name ) = @_;
 
     # First of all get the disk images from the LDAP, to do that, we need the 
     # grandparent entry which will be the machine entry
@@ -269,7 +269,7 @@ sub getDiskImagesByMachine
     }
 
     # Log what we have found in the backend
-    logger("debug","Found ".@backend_source_files." disk images in backend: "
+    logger("debug","$machine_name: Found ".@backend_source_files." disk images in backend: "
           ."@backend_source_files");
 
     # Get the machines xml description 
@@ -286,7 +286,7 @@ sub getDiskImagesByMachine
     {
         my $error_message = $libvirt_err->message;
         my $error = $libvirt_err->code;
-        logger("error","Error from libvirt (".$error
+        logger("error","$machine_name: Error from libvirt (".$error
               ."): libvirt says: $error_message.");
         return undef;
     }
@@ -319,7 +319,7 @@ sub getDiskImagesByMachine
     }
 
     # Log what we have found from the xml
-    logger("debug","Found ".@xml_disks." disk images in XML description: "
+    logger("debug","$machine_name: Found ".@xml_disks." disk images in XML description: "
           ."@xml_disks");
 
     # Check if both arrays have the same length (if not something is not good 
@@ -327,7 +327,7 @@ sub getDiskImagesByMachine
     if ( @xml_disks != @backend_source_files )
     {
         # Log the error and return 
-        logger("error","Backend and XML descirption are not synchronized "
+        logger("error","$machine_name: Backend and XML descirption are not synchronized "
               ."concerning the number of disks");
         return Provisioning::Backup::KVM::Constants::BACKEND_XML_UNCONSISTENCY;
     }
@@ -348,13 +348,13 @@ sub getDiskImagesByMachine
     if ( $match == @backend_source_files )
     {
         # Log it and return the disk images
-        logger("info","Backend and XML description are synchronized concerning"
+        logger("info","$machine_name: Backend and XML description are synchronized concerning"
               ." the disks");
         return @backend_source_files;
     }
 
     # There were some disks that were not found in the xml: 
-    logger("error","Some disks specified in the backend were not found in the "
+    logger("error","$machine_name: Some disks specified in the backend were not found in the "
           ."XML description. Solve this issue to create a backup for this "
           ."machine");
 
@@ -372,12 +372,12 @@ sub getDiskImagesByMachine
 sub restoreVMFromStateFile
 {
 
-    my ($state_file, $xml_file, $vmm) = @_;
+    my ($state_file, $xml_file, $vmm, $machine_name ) = @_;
 
     my $error = 0;
 
     # Log what we are doing
-    logger("debug","Restoring machine from state file $state_file");
+    logger("debug","$machine_name: Restoring machine from state file $state_file");
 
     # Handle the dry_run case, here no files are at retain location so simply 
     # restore the machine form the state file: 
@@ -391,7 +391,7 @@ sub restoreVMFromStateFile
     if ( !open( STATE_FILE, "$state_file") )
     {
         # Log that we cannot open the file for reading and return
-        logger("error","Cannot open state file ($state_file) for reading, "
+        logger("error","$machine_name: Cannot open state file ($state_file) for reading, "
               ."please make sure it has correct permission");
         return Provisioning::Backup::KVM::Constants::CANNOT_READ_STATE_FILE;
 
@@ -404,21 +404,21 @@ sub restoreVMFromStateFile
         {
 
             # Log it and define and start the machine
-            logger("info","Machine was not running when it was backed up, going"
+            logger("info","$machine_name: Machine was not running when it was backed up, going"
                   ." to define and start it");
 
-            $error = defineAndStartMachine($xml_file, $vmm);
+            $error = defineAndStartMachine($xml_file, $vmm, $machine_name );
             
             # Test if there was an error
             if ( $error )
             {
                 # Log it and return 
-                logger("error","Could not define and start the machine");
+                logger("error","$machine_name: Could not define and start the machine");
                 return $error;
             } else
             {
                 # Log and return
-                logger("info","Successfully defined and started machine");
+                logger("info","$machine_name: Successfully defined and started machine");
                 return $error;
             }
         } # end if <STATE_FILE> eq FAKE_STATE_FILE_TEXT
@@ -441,13 +441,13 @@ sub restoreVMFromStateFile
     {
         my $error_message = $libvirt_err->message;
         $error = $libvirt_err->code;
-        logger("error","Error from libvirt (".$error
+        logger("error","$machine_name: Error from libvirt (".$error
               ."): libvirt says: $error_message. Cannot restore machine");
         return $error;
     }
 
     # Log and return success
-    logger("info","Machine successfully restored");
+    logger("info","$machine_name: Machine successfully restored");
     return $error;
 
 }
@@ -462,7 +462,7 @@ sub restoreVMFromStateFile
 sub defineAndStartMachine
 {
 
-    my ($xml_file, $vmm) = @_;
+    my ($xml_file, $vmm, $machine_name ) = @_;
 
     # Define some vars
     my $error = 0;
@@ -471,31 +471,31 @@ sub defineAndStartMachine
 
     # Define the machine, if everything is ok, we get the machine object which
     # we can start afterwards
-    ( $error, $machine_object ) = defineMachine( $xml_file, $vmm );
+    ( $error, $machine_object ) = defineMachine( $xml_file, $vmm, $machine_name);
 
     # Test if the machine could be defined
     if ( $error )
     {
         # Log it and return 
-        logger("error","Machine could not be defined from XML file $xml_file, "
+        logger("error","$machine_name: Machine could not be defined from XML file $xml_file, "
               ."cannot start machine");
         return $error;
     }
 
     # If everything was fine and the machine could be defiend, we can start it
-    ( $error, $machine_name) = startMachine( $machine_object );
+    $error = startMachine( $machine_object, $machine_name);
 
     # Check if the machine could be started
     if ( $error )
     {
         # Log it and return 
-        logger("error","The machine ($machine_name) could not be started. Since"
+        logger("error","$machine_name: The machine ($machine_name) could not be started. Since"
               ." it is already defined you can try to start it manually");
         return $error;
     }
 
     # If everything went fine we can simply return that
-    logger("info","Successfully defined and started machine $machine_name");
+    logger("info","$machine_name: Successfully defined and started machine $machine_name");
     return $error;
 
 }
@@ -510,13 +510,13 @@ sub defineAndStartMachine
 
 sub defineMachine
 {
-    my ($xml_file, $vmm) = @_;
+    my ($xml_file, $vmm, $machine_name) = @_;
 
     my $error = 0;
     my $machine_object;
 
     # Define the machine from the given XML file
-    logger("info","Defining machine using the following XML file: $xml_file");
+    logger("info","$machine_name: Defining machine using the following XML file: $xml_file");
 
     # Handle the dry-run case, since the XML file is not present, we cannot open
     # and check it, so just print the command
@@ -574,13 +574,13 @@ sub defineMachine
     {
         my $error_message = $libvirt_err->message;
         $error = $libvirt_err->code;
-        logger("error","Error from libvirt (".$error
+        logger("error","$machine_name: Error from libvirt (".$error
               ."): libvirt says: $error_message.");
         return Provisioning::Backup::KVM::Constants::CANNOT_DEFINE_MACHINE,"";
     }
 
     # If everything went fine return the object which represents the machine
-    logger("info","Machine succesfully defined");
+    logger("info","$machine_name: Machine succesfully defined");
     return $error,$machine_object;
 
 }
@@ -596,6 +596,7 @@ sub startMachine
 {
 
     my $machine_object = shift;
+    my $machine_name = shift;
 
     my $error = 0;
 
@@ -611,7 +612,7 @@ sub startMachine
     if ( !$machine_object )
     {
         # Log it and return 
-        logger("error","The machine object which was passed to the method start"
+        logger("error","$machine_name: The machine object which was passed to the method start"
               ."Machine in KVMRestore.pm is not valid, cannot start it");
         return Provisioning::Backup::KVM::Constants::CANNOT_WORK_ON_UNDEFINED_OBJECT;
     }
@@ -635,7 +636,7 @@ sub startMachine
     }
 
     # Simply start the machine
-    logger("info","Starting machine $machine_name");
+    logger("info","$machine_name: Starting machine $machine_name");
 
     eval
     {
@@ -648,14 +649,14 @@ sub startMachine
     {
         my $error_message = $libvirt_err->message;
         $error = $libvirt_err->code;
-        logger("error","Error from libvirt (".$error
+        logger("error","$machine_name: Error from libvirt (".$error
               ."): libvirt says: $error_message. Cannot start the machine "
               .$machine_name);
         return Provisioning::Backup::KVM::Constants::CANNOT_START_MACHINE;
     }
 
     # If everything went fine, log it and return 
-    logger("info","Successfully started machine $machine_name");
+    logger("info","$machine_name: Successfully started machine $machine_name");
     return $error;
 
 }
@@ -692,7 +693,7 @@ sub getIntermediatePath
         {
             $backup_date = strftime("%Y%m%d",localtime())."010000";
             chomp($backup_date); 
-            logger("warning","Could not find the backup-date in the file "
+            logger("warning","$machine_name: Could not find the backup-date in the file "
                   ."backend, taking the following: $backup_date");
         }
     }
@@ -701,7 +702,7 @@ sub getIntermediatePath
     $path .= "/".$machine_name."/".$backup_date;
 
     # Log the intermediat path
-    logger("debug","Intermediate path set to $path");
+    logger("debug","$machine_name: Intermediate path set to $path");
 
     # Return now the dirname of the file
     return $path;
@@ -717,12 +718,12 @@ sub getIntermediatePath
 
 sub createDirectory
 {
-    my  ($directory, $config_entry) = @_;
+    my  ($directory, $config_entry, $machine_name) = @_;
 
     # Check if the directory is something defined and not an empty string
     if ( $directory eq "" )
     {
-        logger("error","Cannot create undefined directory");
+        logger("error","$machine_name: Cannot create undefined directory");
         return Provisioning::Backup::KVM::Constants::CANNOT_CREATE_DIRECTORY;
     }
 
@@ -735,7 +736,7 @@ sub createDirectory
     my $parent_dir = join( "/", @parts );
 
     # Test if this directory exists, if not create it
-    createDirectory ( $parent_dir, $config_entry ) unless ( -d $parent_dir );
+    createDirectory ( $parent_dir, $config_entry, $machine_name ) unless ( -d $parent_dir );
 
     # OK parent directory exists, we can create the actual directory
 
@@ -749,7 +750,7 @@ sub createDirectory
     if ( $command_err )
     {
         # Write log and return error 
-        logger("error","Cannot create directory $directory: $output");
+        logger("error","$machine_name: Cannot create directory $directory: $output");
         return Provisioning::Backup::KVM::Constants::CANNOT_CREATE_DIRECTORY;
     }
 
@@ -768,7 +769,7 @@ sub createDirectory
     if ( $command_err )
     {
         # If there was an error log what happend and return 
-        logger("error","Could not set ownership for directory '$directory':"
+        logger("error","$machine_name: Could not set ownership for directory '$directory':"
                ." error: $command_err" );
         return Provisioning::Backup::KVM::Constants::CANNOT_SET_DIRECTORY_OWNERSHIP;
     }
@@ -783,13 +784,13 @@ sub createDirectory
     if ( $command_err )
     {
         # If there was an error log what happend and return 
-        logger("error","Could not set permission for directory '$directory'"
+        logger("error","$machine_name: Could not set permission for directory '$directory'"
                .": error: $command_err" );
         return Provisioning::Backup::KVM::Constants::CANNOT_SET_DIRECTORY_PERMISSION;
     }
 
     # Success! Log it and return
-    logger("debug", "Directory $directory successfully created");
+    logger("debug","$machine_name: $machine_name: Directory $directory successfully created");
     return  Provisioning::Backup::KVM::Constants::SUCCESS_CODE;
 
 }
@@ -804,7 +805,7 @@ sub createDirectory
 sub setPermissionOnFile
 {
 
-    my ( $config_entry, $file ) = @_;
+    my ( $config_entry, $file, $machine_name ) = @_;
 
     my $error = 0;
 
@@ -822,7 +823,7 @@ sub setPermissionOnFile
     # Log the error if there is one
     if ( $error )
     {
-        logger("warning","Could not set correct ownership for file $file");
+        logger("warning","$machine_name: Could not set correct ownership for file $file");
     }
 
     # chmod permission state_file
@@ -832,7 +833,7 @@ sub setPermissionOnFile
     # Log the error if there is one
     if ( $error )
     {
-        logger("warning","Could not set correct permission for file $file");
+        logger("warning","$machine_name: Could not set correct permission for file $file");
     }
 
     return;
@@ -854,7 +855,7 @@ sub calculateRequiredFreeSpace
     my $total_space = 0;
 
     # Log what we do
-    logger("debug","Getting required backup space for machine $machine_name");
+    logger("debug","$machine_name: Getting required backup space for machine $machine_name");
 
     # Go through all disk images and sum up the physical space used by them
     foreach my $disk ( @images )
@@ -872,9 +873,9 @@ sub calculateRequiredFreeSpace
         {
             my $error_message = $libvirt_err->message;
             $error = $libvirt_err->code;
-            logger("error","Could not get disk image information for disk "
+            logger("error","$machine_name: Could not get disk image information for disk "
                   ."$disk");
-            logger("error","Error from libvirt (".$error
+            logger("error","$machine_name: Error from libvirt (".$error
                   ."): libvirt says: $error_message" );
             return undef;
         }
@@ -885,7 +886,7 @@ sub calculateRequiredFreeSpace
         # If the size is not bigger than 0 we have some strange problem
         unless ( $tmp > 0 )
         {
-            logger("error","Disk image size from disk $disk seems to be zero, "
+            logger("error","$machine_name: Disk image size from disk $disk seems to be zero, "
                   ."something with this disk image is not correct!" );
             return undef;
         }
@@ -908,7 +909,7 @@ sub calculateRequiredFreeSpace
     {
         my $error_message = $libvirt_err->message;
         my $error = $libvirt_err->code;
-        logger("error","Error from libvirt (".$error
+        logger("error","$machine_name: Error from libvirt (".$error
               ."): libvirt says: $error_message. Cannot get memory information"
               ." about the machine");
         return undef;
@@ -939,7 +940,7 @@ sub calculateRequiredFreeSpace
 ################################################################################
 sub checkRequiredBackupSpace
 {
-    my ( $directory, $space_needed ) = @_;
+    my ( $directory, $space_needed, $machine_name ) = @_;
 
     # Get filesytem information for the specified directory (size in KB)
     my $file_system_info = df( $directory );
@@ -954,13 +955,13 @@ sub checkRequiredBackupSpace
     # Check if more is available than needed
     if ( $available > $space_needed )
     {
-        logger("debug","For the current backup there are $space_needed bytes "
+        logger("debug","$machine_name: For the current backup there are $space_needed bytes "
               ."required, currently available: $available. There is enough "
               ."space left on $directory to proceed with the backup");
         return Provisioning::Backup::KVM::Constants::TRUE;
     } else
     {
-         logger("debug","For the current backup there are $space_needed bytes "
+         logger("debug","$machine_name: For the current backup there are $space_needed bytes "
               ."required, currently available: $available. There is NOT enough "
               ."space left on $directory to proceed with the backup");
         return Provisioning::Backup::KVM::Constants::FALSE;

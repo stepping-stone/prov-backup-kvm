@@ -93,6 +93,9 @@ my $vmm = Sys::Virt->new( addr => "qemu:///system" );
 # Set a variable to save the intermediate path to the disk image
 my $intermediate_path;
 
+# The machine name is used for all log messages
+my $machine_name;
+
 ################################################################################
 # restore
 ################################################################################
@@ -110,9 +113,6 @@ sub restore
 
     # Get the machine according the the backend entry:
     my $backend = $cfg->val("Database","BACKEND");
-
-    # The machines name
-    my $machine_name;
 
     my $machine = getMachineByBackendEntry( $vmm, $entry, $backend );
 
@@ -142,7 +142,7 @@ sub restore
     }
 
     # Get the parents enry because there is the configuration
-    my $config_entry = getConfigEntry($entry, $cfg);
+    my $config_entry = getConfigEntry($entry, $cfg, $machine_name);
 
     # Test if a configuration entry was found or whether it is the error
     # Provisioning::Backup::KVM::Constants::CANNOT_FIND_CONFIGURATION_ENTRY
@@ -176,7 +176,7 @@ sub restore
 #    if ( $disk_images[0] == Provisioning::Backup::KVM::Constants::BACKEND_XML_UNCONSISTENCY )
 #    {
 #        # Log the error and return
-#        logger("error","The disk information for machine $machine_name is not "
+#        logger("error","$machine_name: The disk information for machine $machine_name is not "
 #              ."consistent between XML description and backend. Solve this "
 #              ."inconsistency before creating a backup");
 #        return Provisioning::Backup::KVM::Constants::BACKEND_XML_UNCONSISTENCY;
@@ -200,7 +200,7 @@ sub restore
                                 if ( $error != SUCCESS_CODE )
                                 {
                                     # Log the error and return
-                                    logger("error","Could not get the files "
+                                    logger("error","$machine_name: Could not get the files "
                                           ."from the backup location: $error");
                                     return $error;
                                     
@@ -231,7 +231,7 @@ sub restore
                                 if ( $error != SUCCESS_CODE )
                                 {
                                     # Log the error and return
-                                    logger("error","Could not get the files "
+                                    logger("error","$machine_name: Could not get the files "
                                           ."from the backup location: $error");
                                     return $error;
                                     
@@ -256,7 +256,7 @@ sub restore
                                 if ( $have_all_files != SUCCESS_CODE )
                                 {
                                     # Log it and return 
-                                    logger("error","Not all necessary files "
+                                    logger("error","$machine_name: Not all necessary files "
                                           ."to restore machine $machine_name "
                                           ."are at backup location. Cannot "
                                           ."continue");
@@ -268,7 +268,7 @@ sub restore
                                 if ( checkDiskImages($config_entry, @retain_files) != SUCCESS_CODE )
                                 {
                                     # Log it and return 
-                                    logger("error","Cannot restore machine "
+                                    logger("error","$machine_name: Cannot restore machine "
                                           ."$machine_name because one of the "
                                           ."disk images is not healthy!");
                                     return Provisioning::Backup::KVM::Constants::CORRUPT_DISK_IMAGE_FOUND;
@@ -309,7 +309,7 @@ sub restore
                                 my $backup_date = getValue($entry,"ou");
 
                                 # Log what we are doing: 
-                                logger("debug","Moving disk image(s) back to "
+                                logger("debug","$machine_name: Moving disk image(s) back to "
                                       ."the original location" );
 
                                 # Get the disk images names:
@@ -332,7 +332,7 @@ sub restore
                                     if ( $error )
                                     {
                                         # Log it and return 
-                                        logger("error","Cannot move disk image"
+                                        logger("error","$machine_name: Cannot move disk image"
                                               ." $image_name to its original "
                                               ."location");
                                         return Provisioning::Backup::KVM::Constants::CANNOT_MOVE_DISK_IMAGE_TO_ORIGINAL_LOCATION;
@@ -354,7 +354,7 @@ sub restore
                                                   .$machine_name.".xml."
                                                   .$backup_date;
 
-                                    $error= restoreVMFromStateFile($state_file, $xml_file ,$vmm);
+                                    $error= restoreVMFromStateFile($state_file, $xml_file ,$vmm, $machine_name );
                                     
                                     # Test if there was an error
                                     if ( $error )
@@ -366,12 +366,12 @@ sub restore
                                         {
                                             # Log and try to start the vm 
                                             # normally
-                                            logger("warning","Could not restore"
+                                            logger("warning","$machine_name: Could not restore"
                                                   ." machine $machine_name, "
                                                   ."trying to define and start "
                                                   ."normally");
 
-                                            $error= defineAndStartMachine($xml_file, $vmm);
+                                            $error= defineAndStartMachine($xml_file, $vmm, $machine_name);
                                             
                                             # Check if the machine could be 
                                             # started normally
@@ -379,7 +379,7 @@ sub restore
                                             {
 
                                                 # Log and return
-                                                logger("error","Could not define"
+                                                logger("error","$machine_name: Could not define"
                                                       ." and start the machine "
                                                       ."$machine_name");
                                                 return $error;
@@ -390,7 +390,7 @@ sub restore
                                         } else
                                         {
                                             # Log error and return 
-                                            logger("error","Could not restore "
+                                            logger("error","$machine_name: Could not restore "
                                                   ."machine $machine_name");
                                             return $error;
                                         } # end else form if $start_normally =~ m/true/i 
@@ -405,14 +405,14 @@ sub restore
                                     my $xml_file = $retain_location."/"
                                                   .$machine_name.".xml."
                                                   .$backup_date;
-                                    $error = defineAndStartMachine( $xml_file, $vmm);
+                                    $error = defineAndStartMachine( $xml_file, $vmm, $machine_name);
 
                                     # Check if there was an error
                                     if ( $error ) 
                                     {
 
                                         # Log it and return the error
-                                        logger("error","Could not define and "
+                                        logger("error","$machine_name: Could not define and "
                                               ."start the machine $machine_name"
                                               );
                                         return $error;
@@ -422,11 +422,11 @@ sub restore
                                 } # end else form if $restore_without_state =~ m/false/i
                                 
                                 # Log that we are done
-                                logger("debug","Machine $machine_name "
+                                logger("debug","$machine_name: Machine $machine_name "
                                       ."successfully restored");
 
                                 # Delete the retain directory
-                                logger("debug","Deleting retain directory "
+                                logger("debug","$machine_name: Deleting retain directory "
                                       .$retain_location);
 
                                 # Generate the commands and remove the files
@@ -436,7 +436,7 @@ sub restore
                                 # Check if there was an error
                                 if ( $error )
                                 {
-                                    logger("warning","Could not remove all "
+                                    logger("warning","$machine_name: Could not remove all "
                                           ."files from retain location: "
                                           .$retain_location.": ".$output);
                                     $error = Provisioning::Backup::KVM::Constants::NOT_ALL_FILES_DELETED_FROM_RETAIN_LOCATION;
@@ -456,7 +456,7 @@ sub restore
         else                { # If nothing of the above was true we have a
                               # problem, log it and return appropriate error 
                               # code
-                              logger("error","State $state is not known in "
+                              logger("error","$machine_name: State $state is not known in "
                                     ."KVMRestore.pm. Stopping here.");
                               return Provisioning::Backup::KVM::Constants::WRONG_STATE_INFORMATION;
                             }
@@ -490,7 +490,7 @@ sub getMachineName
     {
         my $error_message = $libvirt_err->message;
         my $error = $libvirt_err->code;
-        logger("error","Error from libvirt (".$error
+        logger("error","$machine_name: Error from libvirt (".$error
               ."): libvirt says: $error_message.");
         return undef;
     }
@@ -513,7 +513,7 @@ sub getFilesFromBackupLocation
     my $error = 0;
 
     # Log what we are doing
-    logger("debug","Getting $file_size files from backup location for machine "
+    logger("debug","$machine_name: Getting $file_size files from backup location for machine "
           ."$machine_name");
 
     # Local variables for this method
@@ -550,7 +550,7 @@ sub getFilesFromBackupLocation
                        }
         else           {
                         # ooups we don't know, support this protocol
-                        logger("error","The protocol $protocol is not know/"
+                        logger("error","$machine_name: The protocol $protocol is not know/"
                               ."supported for getting the files from backup "
                               ." location: $backup_location");
                         return Provisioning::Backup::KVM::Constants::UNSUPPORTED_FILE_TRANSFER_PROTOCOL;
@@ -558,7 +558,7 @@ sub getFilesFromBackupLocation
     }
 
     # Log the get command
-    logger("debug","The command to get the files from the backup location will"
+    logger("debug","$machine_name: The command to get the files from the backup location will"
           ." be: $get_command");
 
     # Now we can get the files from the backup location and put them to the
@@ -580,7 +580,7 @@ sub getFilesFromBackupLocation
         if ( ! open($xml_fh,"$backup_location/$intermediate_path/$machine_name.xml.$backup_date") )
         {
             # Log the error and return 
-            logger("error","Cannot read from XML file: $backup_location/"
+            logger("error","$machine_name: Cannot read from XML file: $backup_location/"
                   ."$intermediate_path/$machine_name.xml.$backup_date, cannot get "
                   ."disk images for machine $machine_name");
 
@@ -644,7 +644,7 @@ sub getFilesFromBackupLocation
                         }
             else        {
                             # Ooups we don't know this type
-                            logger("error","The backend type ".$cfg->val("Database",
+                            logger("error","$machine_name: The backend type ".$cfg->val("Database",
                                    "BACKEND")."is not known, cannot get the "
                                   ."cbacked up backend file");
                             return Provisioning::Backup::KVM::Constants::UNKNOWN_BACKEND_TYPE;
@@ -658,13 +658,13 @@ sub getFilesFromBackupLocation
     # Check if the retain location exists if not, create it
     unless ( -d $retain_location )
     {
-        $error = createDirectory( $retain_location, $config_entry );
+        $error = createDirectory( $retain_location, $config_entry , $machine_name);
         
         # Test it there was an error
         if ( $error != SUCCESS_CODE )
         {
             # Log it and return 
-            logger("error","Could not create retain location for current backup"
+            logger("error","$machine_name: Could not create retain location for current backup"
                   ." ($retain_location). Fix this first before continuing with "
                   ." the restore process");
             return Provisioning::Backup::KVM::Constants::CANNOT_CREATE_DIRECTORY;
@@ -674,7 +674,7 @@ sub getFilesFromBackupLocation
     # Ok so far we have all files we need to bring to the backup location:
     foreach my $file ( @files )
     {
-        logger("debug","Getting file $file from backup location");
+        logger("debug","$machine_name: Getting file $file from backup location");
         
         # Copy the file to the retain location using the transport api and the 
         # get command
@@ -685,7 +685,7 @@ sub getFilesFromBackupLocation
         if ( $error )
         {
             # Log the error and continue
-            logger("warning","Cannot get file $file to retain location "
+            logger("warning","$machine_name: Cannot get file $file to retain location "
                   ."$retain_location using command $get_command: $output");
         }
     }
@@ -711,7 +711,7 @@ sub checkCompletness
     my $error = 0;
 
     # Log what we are doing
-    logger("debug","Checking if all necessary files are present in retain "
+    logger("debug","$machine_name: Checking if all necessary files are present in retain "
           ."location");
 
     # Get the disk image format
@@ -731,7 +731,7 @@ sub checkCompletness
                     }
         else        {
                         # This is an error, log it and return
-                        logger("error","Unknown/unsupported backend type: "
+                        logger("error","$machine_name: Unknown/unsupported backend type: "
                               .$cfg->val("Database","BACKEND") );
                         return Provisioning::Backup::KVM::Constants::UNKNOWN_BACKEND_TYPE;
                     }
@@ -774,19 +774,19 @@ sub checkCompletness
         {
             # TODO only return if its qcow
             # Log it and return 
-            logger("error","Cannot find the following item in the retain "
+            logger("error","$machine_name: Cannot find the following item in the retain "
                   ."location: $item.*");
             return Provisioning::Backup::KVM::Constants::MISSING_NECESSARY_FILES;
         } else
         {
             # Log that the item was found
-            logger("debug","Found $item.* in retain directory");
+            logger("debug","$machine_name: Found $item.* in retain directory");
             
         }
     }
 
     # OK all files are present
-    logger("debug","All necessary files are present in retain location for "
+    logger("debug","$machine_name: All necessary files are present in retain location for "
           ."machine $machine_name");
 
     return SUCCESS_CODE,@retain_files_found;
@@ -806,7 +806,7 @@ sub checkDiskImages
     my ($config, @retain_files ) = @_;
 
     # Log what we are doing
-    logger("debug","Checking disk images for healthiness");
+    logger("debug","$machine_name: Checking disk images for healthiness");
 
     # Get the disk image format
     my $format = getValue($config, "sstVirtualizationDiskImageFormat");
@@ -814,7 +814,7 @@ sub checkDiskImages
     if ( $format ne "qcow2" )
     {
         # The check does not support this format (only qcow2 is supported)
-        logger("warning","Unfortunatly the image format $format is not "
+        logger("warning","$machine_name: Unfortunatly the image format $format is not "
               ."supported, cannot perform the consistency check");
         return SUCCESS_CODE;
     }
@@ -843,13 +843,13 @@ sub checkDiskImages
             if ( $output ne "No errors were found on the image." && !$dry_run )
             {
                 # Log what went wrong and return
-                logger("error","Found a disk image which is not consistent: "
+                logger("error","$machine_name: Found a disk image which is not consistent: "
                       ."$file: $output");
                 return Provisioning::Backup::KVM::Constants::CORRUPT_DISK_IMAGE_FOUND;
             } else
             {
                 # Log that the disk image is clean
-                logger("debug","Disk image $file is healthy");
+                logger("debug","$machine_name: Disk image $file is healthy");
             }
         }
         
@@ -860,13 +860,13 @@ sub checkDiskImages
     unless ( $counter >= 1 )
     {
         # Log it 
-        logger("warning","Did not check a single disk image, seems as non of "
+        logger("warning","$machine_name: Did not check a single disk image, seems as non of "
               ."the following files matched the disk image format $format: "
               ."@retain_files");
     }
 
     # Log that all disk images are healthy
-    logger("info","All checked disk images are found healthy, everything OK");
+    logger("info","$machine_name: All checked disk images are found healthy, everything OK");
 
     return SUCCESS_CODE;
 }

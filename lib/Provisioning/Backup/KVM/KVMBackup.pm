@@ -94,6 +94,9 @@ my $vmm = Sys::Virt->new( addr => "qemu:///system" );
 # Set a variable to save the intermediate path to the disk image
 my $intermediate_path;
 
+# The machine name will be used for all log messages
+my $machine_name;
+
 ################################################################################
 # backup
 ################################################################################
@@ -122,7 +125,7 @@ sub backup
     }
 
     # Get the machines name:
-    my $machine_name = getMachineName($machine);
+    $machine_name = getMachineName($machine);
 
     # Test if we could get the machines name
     unless ( defined( $machine_name ) )
@@ -133,7 +136,7 @@ sub backup
     }
 
     # Get the parents enry because there is the configuration
-    my $config_entry = getConfigEntry($entry, $cfg);
+    my $config_entry = getConfigEntry( $entry, $cfg, $machine_name );
 
     # Test if a configuration entry was found or whether it is the error
     # Provisioning::Backup::KVM::Constants::CANNOT_FIND_CONFIGURATION_ENTRY
@@ -144,13 +147,13 @@ sub backup
 
     # Now we can get all disk images which includes a test whether LDAP and XML
     # are synchronized
-    my @disk_images = getDiskImagesByMachine( $machine, $entry, $machine_name, $backend );
+    my @disk_images = getDiskImagesByMachine( $machine, $entry, $machine_name, $backend, $machine_name );
 
     # Check the return code
     if ( $disk_images[0] =~ m/^\d+$/ && $disk_images[0] == Provisioning::Backup::KVM::Constants::BACKEND_XML_UNCONSISTENCY )
     {
         # Log the error and return
-        logger("error","The disk information for machine $machine_name is not "
+        logger("error","$machine_name: $machine_name: The disk information for machine $machine_name is not "
               ."consistent between XML description and backend. Solve this "
               ."inconsistency before creating a backup");
         return Provisioning::Backup::KVM::Constants::BACKEND_XML_UNCONSISTENCY;
@@ -189,7 +192,7 @@ sub backup
                                 # backup directroy is set up correct
                                 unless ( $protocol )
                                 {
-                                    logger("error","No protocol specified in "
+                                    logger("error","$machine_name: $machine_name: No protocol specified in "
                                           ."the sstBackupRootDirectory ("
                                           .getValue($config_entry,
                                                     "sstBackupRootDirectory")
@@ -207,7 +210,7 @@ sub backup
 
                                 unless ( defined( $space ) )
                                 {
-                                    logger("error","Could not determine "
+                                    logger("error","$machine_name: $machine_name: Could not determine "
                                           ."the required backup space for "
                                           ."machine $machine_name. Will not "
                                           ."process this machine for security/"
@@ -216,11 +219,11 @@ sub backup
                                 }
 
                                 if (!checkRequiredBackupSpace($retain_directory,
-                                                              $space ) )
+                                                              $space, $machine_name) )
                                 {
                                     # Log that there is no disk space and return
                                     # the corresponding error
-                                    logger("error","There is not enough disk "
+                                    logger("error","$machine_name: $machine_name: There is not enough disk "
                                           ."space available on the "
                                           ."virtualization partition to proceed"
                                           ." with the backup for machine "
@@ -232,11 +235,11 @@ sub backup
                                 # Check if there is enough space available to 
                                 # proceed with this machine
                                 if (!checkRequiredBackupSpace($backup_directory,
-                                                              $space ) )
+                                                              $space, $machine_name ) )
                                 {
                                     # Log that there is no disk space and return
                                     # the corresponding error
-                                    logger("error","There is not enough disk "
+                                    logger("error","$machine_name: $machine_name: There is not enough disk "
                                           ."space available on the "
                                           ."backup partition to proceed with "
                                           ."the backup for machine "
@@ -266,7 +269,7 @@ sub backup
                                 {
                                     # We cannot open the file, log it but
                                     # continue
-                                    logger("warning","Could not open the file"
+                                    logger("warning","$machine_name: Could not open the file"
                                           ."$zabbix_file_name for writting!");
                                 }
 
@@ -284,7 +287,7 @@ sub backup
                                 if ( $error )
                                 {
                                     # Log the error
-                                    logger("error","Saving machine state for "
+                                    logger("error","$machine_name: $machine_name: Saving machine state for "
                                           ."$machine_name failed with "
                                           ."error code: $error");
 
@@ -306,7 +309,7 @@ sub backup
                                     my $libvirt_error = $@;
                                     if ( $libvirt_error )
                                     {
-                                        logger("error","Could not check machine"
+                                        logger("error","$machine_name: $machine_name: Could not check machine"
                                               ." state (running or not) for "
                                               ."machine $machine_name, libvirt "
                                               ."says: '".$libvirt_error->message
@@ -336,7 +339,7 @@ sub backup
                                         my $libvirt_error = $@;
                                         if ( $libvirt_error )
                                         {
-                                            logger("error","Could not start the"
+                                            logger("error","$machine_name: $machine_name: Could not start the"
                                                   ." machine $machine_name. "
                                                   ."Libvit says: ".
                                                   $libvirt_error->message
@@ -351,7 +354,7 @@ sub backup
                                 }
 
                                 # Success, log it!
-                                logger("debug","Machines ($machine_name) state "
+                                logger("debug","$machine_name: Machines ($machine_name) state "
                                        ."successfully saved to $state_file");
 
 
@@ -366,7 +369,7 @@ sub backup
                                 if ( $error )
                                 {
                                     # Log the error
-                                    logger("error","Changing disk images for "
+                                    logger("error","$machine_name: $machine_name: Changing disk images for "
                                           ."$machine_name failed with error "
                                           ."code: $error");
 
@@ -376,13 +379,13 @@ sub backup
                                     if ( $running_before_snapshot )
                                     {
 
-                                        logger("info","Trying to restore the VM "
+                                        logger("info","$machine_name: Trying to restore the VM "
                                               .$machine_name);
 
 
                                         if ( restoreVM($machine_name,$state_file) )
                                         {
-                                            logger("error","Could not restore VM "
+                                            logger("error","$machine_name: $machine_name: Could not restore VM "
                                                   ."$machine_name!!!"
                                                   );
                                         }
@@ -396,7 +399,7 @@ sub backup
                                 }
 
                                 # Success log it
-                                logger("debug","Successfully changed the disk "
+                                logger("debug","$machine_name: Successfully changed the disk "
                                       ."images for machine $machine_name");
 
                                 if ( $running_before_snapshot )
@@ -409,7 +412,7 @@ sub backup
                                         # action
 
                                         #TODO maybe change this to disaster or fatal
-                                        logger("error","Restoring machine "
+                                        logger("error","$machine_name: $machine_name: Restoring machine "
                                               ."$machine_name failed with error "
                                               ."code: $error");
 
@@ -421,14 +424,14 @@ sub backup
                                     }
 
                                     # Success, log it
-                                    logger("debug","Machine $machine_name "
+                                    logger("debug","$machine_name: Machine $machine_name "
                                           ."successfully restored from $state_file");
 
                                 } # end if machineIsRunning( $machine )
                                 else 
                                 {
                                     # Log that the machine is not running
-                                    logger("info","Machine $machine_name is not"
+                                    logger("info","$machine_name: Machine $machine_name is not"
                                           ." running, nothing to "
                                           ."restore");
                                 }
@@ -444,7 +447,7 @@ sub backup
                                 unless ( $state_file =~ m/$retain_directory/)
                                 {
                                     # Log what we are doing
-                                    logger("debug","Coping state file to retain"
+                                    logger("debug","$machine_name: Coping state file to retain"
                                           ." directory");
 
                                     # Get the state file name
@@ -455,7 +458,7 @@ sub backup
                                     {
                                         # Log what went wrong and return 
                                         # appropriate error code
-                                        logger("error","Exporting save file to "
+                                        logger("error","$machine_name: $machine_name: Exporting save file to "
                                               ."retain direcotry failed with "
                                               ."error code $error");
 
@@ -464,7 +467,7 @@ sub backup
                                     } else
                                     {
                                         # Log that everything went fine
-                                        logger("debug","State file successfully"
+                                        logger("debug","$machine_name: State file successfully"
                                               ." copied to retain directory");
 
                                        # Remove the file from RAM-Disk
@@ -474,7 +477,7 @@ sub backup
                                 {
                                     # Log that the file is already where it
                                     # should be!
-                                    logger("debug","State file ($state_file) "
+                                    logger("debug","$machine_name: State file ($state_file) "
                                           ."already at retain location, nothing"
                                           ." to do.");
                                 }
@@ -493,12 +496,12 @@ sub backup
                                     # Log it and 
                                     # TODO how do we proceed here? warning and 
                                     # continue or stop
-                                    logger("warning","Could not save XML for"
+                                    logger("warning","$machine_name: Could not save XML for"
                                           ." machine $machine_name");
                                 }
 
                                 # Log success
-                                logger("debug","XML description for machine "
+                                logger("debug","$machine_name: XML description for machine "
                                       ."$machine_name successfully saved");
 
                                 # Save the backend entry
@@ -514,12 +517,12 @@ sub backup
                                     # Log it and 
                                     # TODO how do we proceed here? warning and 
                                     # continue or stop
-                                    logger("warning","Could not save backend "
+                                    logger("warning","$machine_name: Could not save backend "
                                           ."entry for machine $machine_name");
                                 }
 
                                 # Log success
-                                logger("debug","Backend entry for machine "
+                                logger("debug","$machine_name: Backend entry for machine "
                                       ."$machine_name successfully saved");
 
                                 # Write that the snapshot process is finished
@@ -574,7 +577,7 @@ sub backup
 
                                 unless ( defined( $space ) )
                                 {
-                                    logger("error","Could not determine "
+                                    logger("error","$machine_name: Could not determine "
                                           ."the required backup space for "
                                           ."machine $machine_name. Will not "
                                           ."process this machine for security/"
@@ -583,7 +586,7 @@ sub backup
                                 }
 
                                 if (!checkRequiredBackupSpace($retain_directory,
-                                                              $space ) )
+                                                              $space, $machine_name ) )
                                 {
                                     # Log that there is no disk space and return
                                     # the corresponding error
@@ -642,9 +645,9 @@ sub backup
                                                 ."\nrm-rf ".$retain_directory
                                                 ."/$intermediate_path\n\nFor "
                                                 ."more information please visit"
-                                                .":\nhttps://...";
+                                                .":\nhttps://int.stepping-stone.ch/wiki/KVM_Backup#Troubleshooting";
                                     
-                                    logger("error", $err_mess );
+                                    logger("error", $machine_name.": ".$err_mess );
                                     return Provisioning::Backup::KVM::Constants::NOT_ENOUGH_DISK_SPACE;
                                 }
 
@@ -673,7 +676,7 @@ sub backup
                                         if ( $error > 0 )
                                         {
                                             # Log and restart merge process
-                                            logger("info","Machine was shut down"
+                                            logger("info","$machine_name: Machine was shut down"
                                                   ." while merging, continue merge process");
                                              
                                             # The machine is undefined now so
@@ -683,10 +686,10 @@ sub backup
                                             my $def_xml = $retain_directory."/".
                                                           $intermediate_path."/".
                                                           $machine_name.".xml";
-                                            ($error,$machine) = defineMachine( $def_xml, $vmm);
+                                            ($error,$machine) = defineMachine( $def_xml, $vmm, $machine_name);
                                             if ( $error )
                                             {
-                                                logger("error","Cannot define "
+                                                logger("error","$machine_name: Cannot define "
                                                       ."machine again, failed "
                                                       ."merging disk images");
                                                 return Provisioning::Backup::KVM::Constants::CANNOT_MERGE_DISK_IMAGES;
@@ -698,7 +701,7 @@ sub backup
                                         } elsif ( $error == 0 )
                                         {
                                             # Log and continue
-                                            logger("info","Merge process "
+                                            logger("info","$machine_name: Merge process "
                                                   ."successfully finished");
                                             $merge_done = 1;
                                         } 
@@ -707,8 +710,8 @@ sub backup
 
                                     if ( ! $merge_done )
                                     {
-                                        logger("error","Cannot merge disk image"
-                                              ."! Tried three times but the "
+                                        logger("error","$machine_name: Cannot merge disk image"
+                                              ."! Tried $tries times but the "
                                               ."merge process was always "
                                               ."interrupted!");
                                         return Provisioning::Backup::KVM::Constants::CANNOT_MERGE_DISK_IMAGES;
@@ -758,7 +761,7 @@ sub backup
                                     $retain_location =~ s/^file\:\/\///;
                                 } else
                                 {
-                                    logger("error","The retain location must "
+                                    logger("error","$machine_name: The retain location must "
                                           ."be located on the same filesystem "
                                           ."as the disk images itself, so the "
                                           ."protocol for the retain location "
@@ -773,7 +776,7 @@ sub backup
                                 # backup directroy is set up correct
                                 unless ( $protocol )
                                 {
-                                    logger("error","No protocol specified in "
+                                    logger("error","$machine_name: No protocol specified in "
                                           ."the sstBackupRootDirectory ("
                                           .getValue($config_entry,
                                                     "sstBackupRootDirectory")
@@ -791,7 +794,7 @@ sub backup
 
                                 unless ( defined( $space ) )
                                 {
-                                    logger("error","Could not determine "
+                                    logger("error","$machine_name: Could not determine "
                                           ."the required backup space for "
                                           ."machine $machine_name. Will not "
                                           ."process this machine for security/"
@@ -800,11 +803,11 @@ sub backup
                                 }
 
                                 if (!checkRequiredBackupSpace($backup_directory,
-                                                              $space ) )
+                                                              $space, $machine_name ) )
                                 {
                                     # Log that there is no disk space and return
                                     # the corresponding error
-                                    logger("error","There is not enough disk "
+                                    logger("error","$machine_name: There is not enough disk "
                                           ."space available on the "
                                           ."backup partition to proceed"
                                           ." with the backup for machine "
@@ -821,10 +824,10 @@ sub backup
                                         if ( $error = deleteFile( $file ) )
                                         {
                                             # If an error occured log it and return 
-                                            logger("warning","Deleting file $file "
+                                            logger("warning","$machine_name: Deleting file $file "
                                                   ."failed with return code: $error");
                                         } 
-                                        logger("debug","File $file successfully "
+                                        logger("debug","$machine_name: File $file successfully "
                                               ."deleted");
                                     }
 
@@ -837,7 +840,7 @@ sub backup
                                     if ( $error )
                                     {
                                         # Log it
-                                        logger("warning","Could not remove the just"
+                                        logger("warning","$machine_name: Could not remove the just"
                                               ." created retain direcory: $output");
                                     }
 
@@ -910,7 +913,7 @@ sub backup
                                     if ( $error = exportFileToLocation($source_file,$protocol.$backup_directory."/".$intermediate_path,".$suffix",$config_entry))
                                     {
                                         # If an error occured log it and return 
-                                        logger("error","File ('$source_file') "
+                                        logger("error","$machine_name: File ('$source_file') "
                                               ."transfer to '$backup_directory"
                                               ."/$intermediate_path' "
                                               ."failed with return code: $error");
@@ -918,7 +921,7 @@ sub backup
                                     }
 
                                     # Success, log it!
-                                    logger("debug","Successfully exported file "
+                                    logger("debug","$machine_name: Successfully exported file "
                                           ."$source_file for machine $machine_name"
                                           ." to '$backup_directory/"
                                           ."$intermediate_path'");
@@ -934,11 +937,11 @@ sub backup
                                     if ( $error = deleteFile( $file ) )
                                     {
                                         # If an error occured log it and return 
-                                        logger("warning","Deleting file $file "
+                                        logger("warning","$machine_name: Deleting file $file "
                                               ."failed with return code: $error");
                                         $error = Provisioning::Backup::KVM::Constants::CANNOT_REMOVE_FILE;
                                     } 
-                                    logger("debug","File $file successfully "
+                                    logger("debug","$machine_name: File $file successfully "
                                           ."deleted");
                                 }
 
@@ -954,7 +957,7 @@ sub backup
                                 if ( $error )
                                 {
                                     # Log it
-                                    logger("warning","Could not remove the just"
+                                    logger("warning","$machine_name: Could not remove the just"
                                           ." created retain direcory: $output");
                                     $error = Provisioning::Backup::KVM::Constants::CANNOT_REMOVE_FILE;
                                 }
@@ -984,7 +987,7 @@ sub backup
         case "deleting"     {
                               # Delete the given backup
                               my $backup_to_delete = getValue($entry,"ou");
-                              logger("info","Deleting the backup "
+                              logger("info","$machine_name: Deleting the backup "
                                     ."$backup_to_delete for machine "
                                     ."$machine_name");
 
@@ -1007,7 +1010,7 @@ sub backup
         else                { # If nothing of the above was true we have a
                               # problem, log it and return appropriate error 
                               # code
-                              logger("error","State $state is not known in "
+                              logger("error","$machine_name: State $state is not known in "
                                     ."KVM-Backup.pm. Stopping here.");
                               return Provisioning::Backup::KVM::Constants::WRONG_STATE_INFORMATION;
                             }
@@ -1030,7 +1033,7 @@ sub saveMachineState
     my ( $machine, $machine_name, $entry ) = @_;
 
     # What are we doing?
-    logger("debug","Saving state for machine $machine_name");
+    logger("debug","$machine_name: Saving state for machine $machine_name");
 
     # Initialize the var to return any error, initially it is 0 (no error) 
     my $error = 0;
@@ -1055,7 +1058,7 @@ sub saveMachineState
 #    unless ( -d $retain_location )
 #    {
 #        # If ot does not, write an log message and return
-#        logger("error","Retain directory ($retain_location) does not exist"
+#        logger("error","$machine_name: Retain directory ($retain_location) does not exist"
 #              ." please create it by executing the following command (script "
 #              ."stopps here!): mkdir -p $retain_location" );
 #        return "",Provisioning::Backup::KVM::Constants::RETAIN_ROOT_DIRECTORY_DOES_NOT_EXIST;
@@ -1068,10 +1071,10 @@ sub saveMachineState
     unless ( -d $retain_location )
     {
         # Create it
-        if ( createDirectory( $retain_location, $entry ) != SUCCESS_CODE )
+        if ( createDirectory( $retain_location, $entry , $machine_name ) != SUCCESS_CODE )
         {
             # There was an error in creating the directory log it
-            logger("error","Failed to create directory $retain_location,"
+            logger("error","$machine_name: Failed to create directory $retain_location,"
                   ." cannot move disk image to retain location, stopping here"
                   );
             return "",Provisioning::Backup::KVM::Constants::CANNOT_CREATE_DIRECTORY;
@@ -1085,7 +1088,7 @@ sub saveMachineState
     if ( $ram_disk )
     {
         # We are using RAM-Disk
-        logger("debug","RAM-Disk configured, using it to save state");
+        logger("debug","$machine_name: RAM-Disk configured, using it to save state");
 
         # Get the RAM-Disk location
         my $ram_disk_location = $ram_disk;
@@ -1107,7 +1110,7 @@ sub saveMachineState
             {
 
                 # Log that the RAM-Disk is not large enogh
-                logger("warning","Configured RAM-Disk (".$ram_disk_location.") "
+                logger("warning","$machine_name: Configured RAM-Disk (".$ram_disk_location.") "
                        ."is not large enough to save machine, taking retain "
                        ."backup location to save state file" );
 
@@ -1121,7 +1124,7 @@ sub saveMachineState
         {
             # If we cannot write to the RAM Disk, log it and use local backup
             # location:
-            logger("warning","Configured RAM-Disk (".$ram_disk_location.") is "
+            logger("warning","$machine_name: Configured RAM-Disk (".$ram_disk_location.") is "
                   ."not writable, please make sure it exists and has correct "
                   ."permission, taking retain backup location to save state file"
                   );
@@ -1133,7 +1136,7 @@ sub saveMachineState
     } else
     {
         # Log that no RAM-Disk is configured
-        logger("debug","No RAM-Disk configured, taking local backup location "
+        logger("debug","$machine_name: No RAM-Disk configured, taking local backup location "
                ."to save state file" );
 
         # If no RAM-Disk is configured, use the local backup location
@@ -1148,7 +1151,7 @@ sub saveMachineState
     if ( ! $was_running )
     {
         # log that the machine is not running
-        logger("debug","Machine $machine_name is not running, creating a fake"
+        logger("debug","$machine_name: Machine $machine_name is not running, creating a fake"
               ." state file");
 
         # Check if dry-dun or not
@@ -1176,7 +1179,7 @@ sub saveMachineState
             } else
             {
                 # Cannot open the file 
-                logger("error","Cannot open the file $state_file for writing, "
+                logger("error","$machine_name: Cannot open the file $state_file for writing, "
                       ." cannot write state file");
                 return "",-1;
             }
@@ -1185,7 +1188,7 @@ sub saveMachineState
     }
 
     # Log the location we are going to save the machines state
-    logger("debug","Saving state of machine $machine_name to "
+    logger("debug","$machine_name: Saving state of machine $machine_name to "
            ."$save_state_location");
 
     # Save the VMs state, either in dry run or really
@@ -1215,12 +1218,12 @@ sub saveMachineState
         {
             my $error_message = $libvirt_err->message;
             $error = $libvirt_err->code;
-            logger("error","Error from libvirt (".$error
+            logger("error","$machine_name: Saving machine state failed (".$error
                   ."): libvirt says: $error_message.");
             return "",$error;
         }
 
-        setPermissionOnFile($entry,$state_file);
+        setPermissionOnFile($entry,$state_file, $machine_name);
 
     }
 
@@ -1244,7 +1247,7 @@ sub changeDiskImages
     my $error = 0;
 
     # Log what we are currently doing
-    logger("debug","Renaming original disk image(s) for machine $machine_name");
+    logger("debug","$machine_name: Renaming original disk image(s) for machine $machine_name");
     
     # Get the retain locatio:
     my $retain_directory = getValue($config_entry,"sstBackupRetainDirectory");
@@ -1259,10 +1262,10 @@ sub changeDiskImages
     unless ( -d $retain_directory )
     {
         # Create it
-        if ( createDirectory( $retain_directory, $config_entry ) != SUCCESS_CODE )
+        if ( createDirectory( $retain_directory, $config_entry, $machine_name ) != SUCCESS_CODE )
         {
             # There was an error in creating the directory log it
-            logger("error","Failed to create directory $retain_directory,"
+            logger("error","$machine_name: Failed to create directory $retain_directory,"
                   ." cannot move disk image to retain location, stopping here"
                   );
             return Provisioning::Backup::KVM::Constants::CANNOT_CREATE_DIRECTORY;
@@ -1286,21 +1289,21 @@ sub changeDiskImages
         if ( $command_err )
         {
             # If there was an error log what happend and return 
-            logger("error","Could not move the disk image $disk_image for "
+            logger("error","$machine_name: Could not move the disk image $disk_image for "
                    ."machine $machine_name: error: $command_err" );
             return Provisioning::Backup::KVM::Constants::CANNOT_RENAME_DISK_IMAGE;
         }
 
         # When the disk image could be renamed log it and continue
-        logger("debug","Disk image renamed for machine $machine_name");
-        logger("debug","Creating new disk image for machine $machine_name");
+        logger("debug","$machine_name: Disk image renamed for machine $machine_name");
+        logger("debug","$machine_name: Creating new disk image for machine $machine_name");
 
         # Create a new disk image with the same name as the old (original one) and
         # set correct permission
         if ( $error = createEmptyDiskImage($disk_image,$config_entry,$retain_directory."/".$disk_image_name))
         {
             # Log it and return
-            logger("error","Could not create empty disk $disk_image for machine"
+            logger("error","$machine_name: Could not create empty disk $disk_image for machine"
                    ." $machine_name: error: $error");
             return $error;
         }
@@ -1324,7 +1327,7 @@ sub restoreVM
     my ( $machine_name, $state_file ) = @_;
 
     # Log what we are doing
-    logger("debug","Restoring machine $machine_name from $state_file");
+    logger("debug","$machine_name: Restoring machine $machine_name from $state_file");
 
     # Initialize error to no-error
     my $error = 0;
@@ -1334,7 +1337,7 @@ sub restoreVM
     if ( !(-r $state_file) && !$dry_run )
     {
         # Log it and return error
-        logger("error","Cannot read state file '$state_file' for machine "
+        logger("error","$machine_name: Cannot read state file '$state_file' for machine "
                .$machine_name );
         $error = 1;
         return $error;
@@ -1366,7 +1369,7 @@ sub restoreVM
         {
             my $error_message = $libvirt_err->message;
             $error = $libvirt_err->code;
-            logger("error","Error from libvirt (".$error
+            logger("error","$machine_name: Error from libvirt (".$error
                   ."): libvirt says: $error_message.");
             return $error;
         }
@@ -1374,7 +1377,7 @@ sub restoreVM
     }
 
     # Log success
-    logger("debug", "Machine $machine_name successfully restored!");
+    logger("debug","$machine_name: Machine $machine_name successfully restored!");
     return $error;
 
 }
@@ -1396,7 +1399,7 @@ sub mergeDiskImages
     my $error = 0;
 
     # Log what we are doing
-    logger("debug","Merging disk images for machine $machine_name which is "
+    logger("debug","$machine_name: Merging disk images for machine $machine_name which is "
            ."the following file: $disk_image");
 
     # We need some vars:
@@ -1438,7 +1441,7 @@ sub mergeDiskImages
         if ( ! $running )
         {
             # Start the machine in pasued state
-            logger("debug","Machine is not running, starting in paused state");
+            logger("debug","$machine_name: Machine is not running, starting in paused state");
             eval
             {
                 $machine->create(Sys::Virt::Domain::START_PAUSED);
@@ -1451,7 +1454,7 @@ sub mergeDiskImages
             {
                 my $error_message = $libvirt_err->message;
                 $error = $libvirt_err->code;
-                logger("error","Error from libvirt (".$error
+                logger("error","$machine_name: Error from libvirt (".$error
                       ."): libvirt says: $error_message.");
                 return $error;
             }
@@ -1461,7 +1464,7 @@ sub mergeDiskImages
         }
 
         # Really merge the disk images
-        logger("debug","Merge process starts");
+        logger("debug","$machine_name: Merge process starts");
         eval
         {
             $machine->block_pull($disk_image, $bandwidth);
@@ -1477,13 +1480,14 @@ sub mergeDiskImages
         {
             my $error_message = $libvirt_err->message;
             $error = $libvirt_err->code;
-            logger("error","Error from libvirt (".$error
+            logger("warning","$machine_name: Error from libvirt (".$error
                   ."): libvirt says: $error_message.");
             return $error;
         }
 
         # Test if the job is done:
         my $job_done = 0;
+        my $old_log_time = time;
         while ( $job_done == 0)
         {
             # Get the block job information from the machine and the given image
@@ -1503,14 +1507,30 @@ sub mergeDiskImages
             {
                 my $error_message = $libvirt_err->message;
                 $error = $libvirt_err->code;
-                logger("error","Error from libvirt (".$error
+                logger("error","$machine_name: Error from libvirt (".$error
                       ."): libvirt says: $error_message.");
                 return $error;
             }
+            
+            # Log every minute the status of the merge process
+            if ( time >= ( $old_log_time + 60 ) )
+            {
+                logger("info","$machine_name: $machine_name: Merge status in blocks (current"
+                      ."/end): ".$info->{cur}."/".$info->{end}." job type: "
+                      .$info->{type});
+                $old_log_time = time;
+            }
+
 
             # Test if type == 0, if yes the job is done, if test == 1, the job 
             # is still running
-            $job_done = 1 if ( $info->{type} == 0 );
+            if ( $info->{type} == 0 )
+            {
+                $job_done = 1;
+                logger("info","$machine_name: $machine_name: Merge status in blocks (current"
+                      ."/end): ".$info->{cur}."/".$info->{end}." job type: "
+                      .$info->{type});
+            }
 
             # Wait for a second and retest
             sleep(1);
@@ -1518,7 +1538,7 @@ sub mergeDiskImages
             # Test if timeout
             if ( time - $start_time > 14400 )
             {
-                logger("error","Machine is now merging for more than 4 "
+                logger("error","$machine_name: Machine is now merging for more than 4 "
                       ."hours, merge process timed out.");
                 return $error = 1;
             }
@@ -1526,7 +1546,7 @@ sub mergeDiskImages
         }
 #        } else
 #        {
-#            logger("debug","Copy the disk image to retain location");
+#            logger("debug","$machine_name: Copy the disk image to retain location");
 #            # If the machine is not running we need to copy the image to the 
 #            # retain location
 #            # Generate to commands to execute
@@ -1543,7 +1563,7 @@ sub mergeDiskImages
 #            if ( $error )
 #            {
 #                # Log if there is 
-#                logger("error","Could not copy disk image to retain location: "
+#                logger("error","$machine_name: Could not copy disk image to retain location: "
 #                      .$output);
 #                return $error;
 #            }
@@ -1565,15 +1585,15 @@ sub mergeDiskImages
         {
             my $error_message = $libvirt_err->message;
             $error = $libvirt_err->code;
-            logger("warning","Error from libvirt (".$error
+            logger("warning","$machine_name: Error from libvirt (".$error
                       ."): libvirt says: $error_message.");
-            logger("warning","Cannot decide whether to destroy the machine "
+            logger("warning","$machine_name: Cannot decide whether to destroy the machine "
                   ."or not! Not doing anything for safty reasons!");
         }
 
         if ( ! $running && $state == Sys::Virt::Domain::STATE_PAUSED_SAVE )
         {
-            logger("debug","Stopping machine again");
+            logger("debug","$machine_name: Stopping machine again");
             sleep 2;
             eval
             {
@@ -1587,9 +1607,9 @@ sub mergeDiskImages
             {
                 my $error_message = $libvirt_err->message;
                 $error = $libvirt_err->code;
-                logger("warning","Error from libvirt (".$error
+                logger("warning","$machine_name: Error from libvirt (".$error
                       ."): libvirt says: $error_message.");
-                logger("warning","Could not destroy machine");
+                logger("warning","$machine_name: Could not destroy machine");
             }
 
         }
@@ -1635,21 +1655,21 @@ sub exportFileToLocation
     unless ( -d $location )
     {
         # Create the directory
-        if ( createDirectory( $location, $config_entry ) != SUCCESS_CODE )
+        if ( createDirectory( $location, $config_entry, $machine_name) != SUCCESS_CODE )
         {
             # Log it and return
-            logger("error", "Failed to create directory $location,"
+            logger("error","$machine_name: Failed to create directory $location,"
                   ." cannot move file there. Stopping here");
             return Provisioning::Backup::KVM::Constants::CANNOT_CREATE_DIRECTORY;
         }
 
         # Log succes
-        logger("debug", "Destination directory $location "
+        logger("debug","$machine_name: Destination directory $location "
               ."successfully created");
     }
 
     # What are we doing? 
-    logger("debug","Exporting $file to $location using $command");
+    logger("debug","$machine_name: Exporting $file to $location using $command");
 
     # Genereate the command
     my @args = ($command,$file,$location."/".$file_name);
@@ -1661,7 +1681,7 @@ sub exportFileToLocation
     if ( $error )
     {
         # If there was an error log what happend and return 
-        logger("error","Could not export $file to $location. Error: $error" );
+        logger("error","$machine_name: Could not export $file to $location. Error: $error" );
         return $error;
     }
 
@@ -1684,7 +1704,7 @@ sub deleteFile
     $file =~ s/file:\/\///;
 
     # Log what we are doing
-    logger("debug","Deleting file $file");
+    logger("debug","$machine_name: Deleting file $file");
 
     # Generate the command
     my @args = ("rm",$file);
@@ -1697,7 +1717,7 @@ sub deleteFile
     if ( $error )
     {
         # If there was an error log what happend and return 
-        logger("error","Could delete file $file. Error: $error" );
+        logger("error","$machine_name: Could delete file $file. Error: $error" );
         return $error;
     }
 
@@ -1732,7 +1752,7 @@ sub checkRAMDiskSize
     {
         my $error_message = $libvirt_err->message;
         my $error = $libvirt_err->code;
-        logger("error","Error from libvirt (".$error
+        logger("error","$machine_name: Error from libvirt (".$error
               ."): libvirt says: $error_message.");
         return $error;
     }
@@ -1782,7 +1802,7 @@ sub getMachineName
     {
         my $error_message = $libvirt_err->message;
         my $error = $libvirt_err->code;
-        logger("error","Error from libvirt (".$error
+        logger("error","$machine_name: Error from libvirt (".$error
               ."): libvirt says: $error_message.");
         return undef;
     }
@@ -1820,7 +1840,7 @@ sub createEmptyDiskImage
     if ( $command_err )
     {
         # If there was an error log what happend and return 
-        logger("error","Could not create empty disk image '$disk_image': "
+        logger("error","$machine_name: Could not create empty disk image '$disk_image': "
                ."error: $command_err" );
         return Provisioning::Backup::KVM::Constants::CANNOT_CREATE_EMPTY_DISK_IMAGE;
     }
@@ -1840,7 +1860,7 @@ sub createEmptyDiskImage
     if ( $command_err )
     {
         # If there was an error log what happend and return 
-        logger("error","Could not set ownership for disk image '$disk_image':"
+        logger("error","$machine_name: Could not set ownership for disk image '$disk_image':"
                ." error: $command_err" );
         return Provisioning::Backup::KVM::Constants::CANNOT_SET_DISK_IMAGE_OWNERSHIP;
     }
@@ -1855,14 +1875,14 @@ sub createEmptyDiskImage
     if ( $command_err )
     {
         # If there was an error log what happend and return 
-        logger("error","Could not set permission for disk image '$disk_image'"
+        logger("error","$machine_name: Could not set permission for disk image '$disk_image'"
                .": error: $command_err" );
         return Provisioning::Backup::KVM::Constants::CANNOT_SET_DISK_IMAGE_PERMISSION;
     }
 
 
     # if everything is OK we log it and return
-    logger("debug","Empty disk image '$disk_image' created");
+    logger("debug","$machine_name: Empty disk image '$disk_image' created");
     return SUCCESS_CODE;
 }
 
@@ -1891,7 +1911,7 @@ sub saveXMLDescription
     {
         my $error_message = $libvirt_err->message;
         my $error = $libvirt_err->code;
-        logger("error","Error from libvirt (".$error
+        logger("error","$machine_name: Error from libvirt (".$error
               ."): libvirt says: $error_message.");
         return Provisioning::Backup::KVM::Constants::CANNOT_SAVE_XML;
     }
@@ -1906,9 +1926,9 @@ sub saveXMLDescription
         unless ( -d dirname( $file ) )
         {
             # If it does not exist, create it
-            if ( createDirectory( dirname( $file ), $config_entry ) != SUCCESS_CODE )
+            if ( createDirectory( dirname( $file ), $config_entry , $machine_name) != SUCCESS_CODE )
             {
-                logger("error","Cannot create directory ".dirname ($file )
+                logger("error","$machine_name: Cannot create directory ".dirname ($file )
                       ."Cannot save the XML file ($file).");
                 return Provisioning::Backup::KVM::Constants::CANNOT_SAVE_XML;
             }
@@ -1918,7 +1938,7 @@ sub saveXMLDescription
         if ( !open(XML, ">$file") )
         {
             # Failed to open the file
-            logger("error","Cannot open the file $file for writing: $!. "
+            logger("error","$machine_name: Cannot open the file $file for writing: $!. "
                   ."Stopping here!");
             return Provisioning::Backup::KVM::Constants::CANNOT_SAVE_XML;
         } else
@@ -1928,7 +1948,7 @@ sub saveXMLDescription
             close XML;
 
             # Set correct permission
-            setPermissionOnFile( $config_entry, $file );
+            setPermissionOnFile( $config_entry, $file, $machine_name );
         }
     }
 
@@ -1964,9 +1984,9 @@ sub saveBackendEntry
     unless ( -d dirname( $file ) )
     {
         # If it does not exist, create it
-        if ( createDirectory( dirname( $file ), $config_entry ) != SUCCESS_CODE )
+        if ( createDirectory( dirname( $file ), $config_entry, $machine_name ) != SUCCESS_CODE )
         {
-            logger("error","Cannot create directory ".dirname ($file )
+            logger("error","$machine_name: Cannot create directory ".dirname ($file )
                   ."Cannot save the backend entry ($file).");
             return Provisioning::Backup::KVM::Constants::CANNOT_SAVE_BACKEND_ENTRY;
         }
@@ -1979,7 +1999,7 @@ sub saveBackendEntry
     if ( $error )
     {
         # Log it and return
-        logger("error","Could not export the backend entry to the file $file"
+        logger("error","$machine_name: Could not export the backend entry to the file $file"
               ."Stopping here.");
         return Provisioning::Backup::KVM::Constants::CANNOT_SAVE_BACKEND_ENTRY;
     }
@@ -1999,14 +2019,14 @@ sub saveBackendEntry
         $error = exportEntryToFile( $dhcps[0], $file, 0 );
     } else
     {
-        logger("warning","Found ".@dhcps." dhcp entries for the machine "
+        logger("warning","$machine_name: Found ".@dhcps." dhcp entries for the machine "
               .$machine_name." cannot save it (search base: $dhcp_base)" );
     }
 
-    setPermissionOnFile( $config_entry, $file );
+    setPermissionOnFile( $config_entry, $file , $machine_name);
 
     # Otherwise log success and return
-    logger("debug","Successfully exported backend entry to $file");
+    logger("debug","$machine_name: Successfully exported backend entry to $file");
     return SUCCESS_CODE;
 }
 
@@ -2107,7 +2127,7 @@ sub machineIsRunning
     my ( $machine, $machine_name )  = @_;
 
     # Log what we are doing
-    logger("debug","Checking if machine $machine_name is running");
+    logger("debug","$machine_name: Checking if machine $machine_name is running");
 
     # Test if the machine is running or not
     my $running;
@@ -2120,7 +2140,7 @@ sub machineIsRunning
     my $libvirt_error = $@;
     if ( $libvirt_error )
     {
-        logger("error","Could not check machine"
+        logger("error","$machine_name: Could not check machine"
         ." state (running or not): $libvirt_error");
         return undef;
     }
@@ -2129,11 +2149,11 @@ sub machineIsRunning
     if ( $running )
     {
         # Yes the machine is running
-        logger("debug","Machine $machine_name is running");
+        logger("debug","$machine_name: Machine $machine_name is running");
     } else
     {
         # No, the machine is not running
-        logger("debug","Machine $machine_name is shut down");
+        logger("debug","$machine_name: Machine $machine_name is shut down");
     }
 
     # If everything was fine, return running
@@ -2197,7 +2217,7 @@ sub deleteBackup
     if ( $counter < 3 )
     {
         # Log it
-        logger("warning","Only found $counter files to delete for machine "
+        logger("warning","$machine_name: Only found $counter files to delete for machine "
               ."$machine_name (without disk iamges) and backup date "
               ."$to_delete_date. Please check the other backups for this "
               ."machine for completeness");

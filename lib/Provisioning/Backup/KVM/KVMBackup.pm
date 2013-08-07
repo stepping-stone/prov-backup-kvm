@@ -1507,7 +1507,7 @@ sub mergeDiskImages
             {
                 my $error_message = $libvirt_err->message;
                 $error = $libvirt_err->code;
-                logger("error","$machine_name: Error from libvirt (".$error
+                logger("warning","$machine_name: Error from libvirt (".$error
                       ."): libvirt says: $error_message.");
                 return $error;
             }

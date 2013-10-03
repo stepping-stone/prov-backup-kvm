@@ -1,5 +1,6 @@
-# Netbeans project folder
-nbproject/*
+# Ignore the eclipse project files
+.project
+.includepath
 
 # Test configurations
 *_test.conf

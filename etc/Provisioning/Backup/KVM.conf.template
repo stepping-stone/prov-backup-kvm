@@ -23,6 +23,32 @@
 # See the Licence for the specific language governing
 # permissions and limitations under the Licence.
 #
+#
+# Copyright (C) 2013 stepping stone GmbH
+#                    Switzerland
+#                    http://www.stepping-stone.ch
+#                    support@stepping-stone.ch
+#
+# Authors:
+#  Pat Kläy <pat.klaey@stepping-stone.ch>
+#  
+# Licensed under the EUPL, Version 1.1.
+#
+# You may not use this work except in compliance with the
+# Licence.
+# You may obtain a copy of the Licence at:
+#
+# http://www.osor.eu/eupl
+#
+# Unless required by applicable law or agreed to in
+# writing, software distributed under the Licence is
+# distributed on an "AS IS" basis,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+# express or implied.
+# See the Licence for the specific language governing
+# permissions and limitations under the Licence.
+#
+
 
 
 [Global]
@@ -38,32 +64,71 @@ LOG_WARNING = 1
 #If true the script logs errors to the log-file.
 LOG_ERR = 1
 
-ENVIRONMENT = <FOSS-CLOUD-NODE-NAME>
+# The environment indicates the hostname (fqdn) on which the prov-backup-kvm 
+# daemon is running
+ENVIRONMENT = <STONEY-CLOUD-NODE-NAME>
  
+# All information related to the database (backend) the daemon connects to
 [Database]
 BACKEND = LDAP
-SERVER = <FOSS-CLOUD-LDAP-SERVER>
-PORT = <FOSS-CLOUD-LDAP-PORT>
-ADMIN_USER = <FOSS-CLOUD-LDAP-BINDDN>
-ADMIN_PASSWORD = <FOSS-CLOUD-LDAP-BIND-PASSWORD>
-SERVICE_SUBTREE = <FOSS-CLOUD-LDAP-SERVICE-SUBTREE>
-COOKIE_FILE = <FOSS-CLOUD-LDAP-COOKIE-FILE>
-DEFAULT_COOKIE = rid=001,csn=
-SEARCH_FILTER = (&(entryCSN>=%entryCSN%)(objectClass=*))
-FOSS_CLOUD_WIDE_CONFIGURATION = <FOSS-CLOUD-LDAP-PROV-BACKUP-KVM-DEFAULT-CONFIGURATION>
+SERVER = <STONEY-CLOUD-LDAP-SERVER>
+PORT = <STONEY-CLOUD-LDAP-PORT>
+ADMIN_USER = <STONEY-CLOUD-LDAP-BINDDN>
+ADMIN_PASSWORD = <STONEY-CLOUD-LDAP-BIND-PASSWORD>
+SERVICE_SUBTREE = <STONEY-CLOUD-LDAP-SERVICE-SUBTREE>
 
+# A cookie file will be used to be able to restart the daemon without
+# processing every entry again (they appear as new if the daemon is started) 
+COOKIE_FILE = <STONEY-CLOUD-LDAP-COOKIE-FILE>
+
+# The default cookie just contains an empty CSN, in that way, all entries
+# are processed
+DEFAULT_COOKIE = rid=001,csn=
+
+# The search filter for the database. Only process entries found with this
+# filter
+SEARCH_FILTER = (&(entryCSN>=%entryCSN%)(objectClass=*))
+
+# Indicates the prov-backup-kvm configuration which applies for every
+# VM-Pool and every VM if not overwritten by a VM-Pool- or VM-specific 
+# configuration
+STONEY_CLOUD_WIDE_CONFIGURATION = <STONEY-CLOUD-LDAP-PROV-BACKUP-KVM-DEFAULT-CONFIGURATION>
+
+# Configuration concerining the provisioning module
 [Service]
+
+# The modus should always be selfcare
 MODUS = selfcare
+
+# Which TransportApi is used to execute the commands on the destination system
+# TransportApi can be "LocalCLI" or "CLISSH"
 TRANSPORTAPI = LocalCLI
+
+# The name of the provisioning service
 SERVICE = Backup
+
+# The name of the provisioning type
 TYPE = KVM
 
-SYSLOG = KVM
+# The syslog tag (normally service-type)
+SYSLOG = Backup-KVM
 
+# All information concerning the gateway (TransportApi)
 [Gateway]
 HOST = localhost
 USER = provisioning
-DSA_FILE = 
+DSA_FILE = none
 
+# Service specific configuration which is not present in the backend
 [Backup]
+
+# Which command is used to export files
 EXPORT_COMMAND = cp -p
+
+[DiskMapping]
+PERSISTENTSEARCH = 
+PERSISTENTREPLACE = 
+TEMPLATESEARCH = 
+TEMPLATEREPLACE = 
+
+

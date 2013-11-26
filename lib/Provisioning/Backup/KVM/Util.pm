@@ -25,6 +25,30 @@ package Provisioning::Backup::KVM::Util;
 # See the Licence for the specific language governing
 # permissions and limitations under the Licence.
 #
+# Copyright (C) 2013 stepping stone GmbH
+#                    Switzerland
+#                    http://www.stepping-stone.ch
+#                    support@stepping-stone.ch
+#
+# Authors:
+#  Pat Kläy <pat.klaey@stepping-stone.ch>
+#  
+# Licensed under the EUPL, Version 1.1.
+#
+# You may not use this work except in compliance with the
+# Licence.
+# You may obtain a copy of the Licence at:
+#
+# http://www.osor.eu/eupl
+#
+# Unless required by applicable law or agreed to in
+# writing, software distributed under the Licence is
+# distributed on an "AS IS" basis,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+# express or implied.
+# See the Licence for the specific language governing
+# permissions and limitations under the Licence.
+#
 
 our @ISA = qw(Exporter);
 
@@ -263,14 +287,33 @@ sub getDiskImagesByMachine
     my @backend_source_files = ();
     foreach my $backend_disk ( @backend_disks )
     {
+        my @disks;
+        
         # Get the value sstSourceFile and add it to the backend_source_files 
         # array
-        push( @backend_source_files, getValue( $backend_disk,"sstSourceFile") );
+        @disks = getValue( $backend_disk,"sstSourceFile");
+        
+        # Check if the sstSourceFile was set and not empty ( if empty we need 
+        # tp get sstSourceName )
+        if ( @disks )
+        {
+            push( @backend_source_files, @disks );
+            next;
+        }
+        
+        # Ok sstSourceFile was not set, so we need to get sstSourceName
+        @disks = getValue( $backend_disk,"sstSourceName");
+        
+        if ( @disks )
+        {
+            push( @backend_source_files, @disks );
+            next;
+        }
     }
 
     # Log what we have found in the backend
-    logger("debug","$machine_name: Found ".@backend_source_files." disk images in backend: "
-          ."@backend_source_files");
+    logger("debug","$machine_name: Found ".@backend_source_files." disk images "
+          ."in backend: @backend_source_files");
 
     # Get the machines xml description 
     my $xml_string;
@@ -308,10 +351,22 @@ sub getDiskImagesByMachine
     {
         # Check if the disks device is disk and not cdrom, we want the disk
         # image path !
-        if ( $xml->{'domain'}->[0]->{'devices'}->[0]->{'disk'}->[$i]->{'device'} eq "disk" )
+        if ( $xml->{'domain'}->[0]->{'devices'}->[0]->{'disk'}->[$i]->{'device'} eq "disk" &&
+             $xml->{'domain'}->[0]->{'devices'}->[0]->{'disk'}->[$i]->{'type'} eq "file"
+           )
         {
             # Return the file attribute in the source tag
             push( @xml_disks, $xml->{'domain'}->[0]->{'devices'}->[0]->{'disk'}->[$i]->{'source'}->[0]->{'file'});
+        }
+
+        # Check if the disks device is disk and not cdrom, we want the disk
+        # image gluster path!
+        if ( $xml->{'domain'}->[0]->{'devices'}->[0]->{'disk'}->[$i]->{'device'} eq "disk" &&
+             $xml->{'domain'}->[0]->{'devices'}->[0]->{'disk'}->[$i]->{'type'} eq "network"
+           )
+        {
+            # Return the file attribute in the source tag
+            push( @xml_disks, $xml->{'domain'}->[0]->{'devices'}->[0]->{'disk'}->[$i]->{'source'}->[0]->{'name'});
         }
 
         # If it's not the disk disk, try the next one

@@ -25,6 +25,29 @@ package Provisioning::Backup::KVM::KVMBackup;
 # See the Licence for the specific language governing
 # permissions and limitations under the Licence.
 #
+# Copyright (C) 2013 stepping stone GmbH
+#                    Switzerland
+#                    http://www.stepping-stone.ch
+#                    support@stepping-stone.ch
+#
+# Authors:
+#  Pat Kläy <pat.klaey@stepping-stone.ch>
+#  
+# Licensed under the EUPL, Version 1.1.
+#
+# You may not use this work except in compliance with the
+# Licence.
+# You may obtain a copy of the Licence at:
+#
+# http://www.osor.eu/eupl
+#
+# Unless required by applicable law or agreed to in
+# writing, software distributed under the Licence is
+# distributed on an "AS IS" basis,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+# express or implied.
+# See the Licence for the specific language governing
+# permissions and limitations under the Licence.
 #
 
 use warnings;
@@ -363,6 +386,7 @@ sub backup
                                 # further changes to.
                                 $error = changeDiskImages( $machine_name , 
                                                            $config_entry ,
+                                                           $cfg,
                                                            @disk_images );
 
                                 # Check if there was an error
@@ -917,16 +941,18 @@ sub backup
                                               ."transfer to '$backup_directory"
                                               ."/$intermediate_path' "
                                               ."failed with return code: $error");
-                                        return Provisioning::Backup::KVM::Constants::CANNOT_COPY_FILE_TO_BACKUP_LOCATION;
+                                        #return Provisioning::Backup::KVM::Constants::CANNOT_COPY_FILE_TO_BACKUP_LOCATION;
+                                    } else
+                                    {
+                                        # Success, log it!
+                                        logger("debug","$machine_name: Successfully exported file "
+                                              ."$source_file for machine $machine_name"
+                                              ." to '$backup_directory/"
+                                              ."$intermediate_path'");   
                                     }
-
-                                    # Success, log it!
-                                    logger("debug","$machine_name: Successfully exported file "
-                                          ."$source_file for machine $machine_name"
-                                          ." to '$backup_directory/"
-                                          ."$intermediate_path'");
-
                                 }
+                                
+                                return Provisioning::Backup::KVM::Constants::CANNOT_COPY_FILE_TO_BACKUP_LOCATION if ( $error );
 
                                 # And finally clean up the no longer needed 
                                 # files 
@@ -1241,7 +1267,7 @@ sub saveMachineState
 sub changeDiskImages
 {
 
-    my ( $machine_name , $config_entry , @images ) = @_;
+    my ( $machine_name , $config_entry , $cfg , @images ) = @_;
 
     # Initialize the var to return any error, initially it is 0 (no error) 
     my $error = 0;
@@ -1272,10 +1298,30 @@ sub changeDiskImages
         }
         
     }
-       
+    
+    my $persistent_search = $cfg->val("DiskMapping","PERSISTENTSEARCH");
+    my $persistent_replace = $cfg->val("DiskMapping","PERSISTENTREPLACE");
+    my $template_search = $cfg->val("DiskMapping","TEMPLATESEARCH");
+    my $template_replace = $cfg->val("DiskMapping","TEMPLATEREPLACE");
+    
     foreach my $disk_image ( @images )
     {
-        # If we got the disk image we can rename / move it using the TransportAPI
+        # Check the disk images, is it a direct gluster path or is it a file
+        # path i.e. over the gluster mount. For the rest of this method we need
+        # the file path, to be able to move them around and link them as backing
+        # store file
+        
+        # Check if the images matches the persistent_search string (means it is
+        # a persistent vm which has the file direct over the gluster attached)
+        # and replace it with the persistent_replace string
+        $disk_image =~ s/^$persistent_search/$persistent_replace/;
+        
+        # Check if the images matches the template_search string (means it is
+        # a vm template which has the file direct over the gluster attached)
+        # and replace it with the template_replace string
+        $disk_image =~ s/^$template_search/$template_replace/;
+        
+        # If we got the disk image we can rename/move it using the TransportAPI
         # So first generate the commands:
         # Get the disk image name
         my $disk_image_name = basename( $disk_image );

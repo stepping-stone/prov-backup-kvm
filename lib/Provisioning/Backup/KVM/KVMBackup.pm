@@ -2456,6 +2456,34 @@ sub getDiskImageFromLDAP
     # Check the results
     if ( @disks == 1 )
     {
+        # Check if everything is alright
+        if ( getValue($disks[0],"sstType") eq "network"  )
+        {
+            unless ( getValue( $disks[0], "sstSourceName") eq $disk_image ) 
+            {
+                logger("warning","$machine_name: Sisk type is network but the "
+                                ."sstSourceName seems not to be the expected "
+                                ."disk image $disk_image. Cannot determine the "
+                                ."correct disk image");
+                return undef;
+            }
+        } elsif ( getValue($disks[0],"sstType") eq "file"  )
+        {
+            unless ( getValue( $disks[0], "sstSourceFile") eq $disk_image_path )
+            {
+                logger("warning","$machine_name: Disk type is file but the "
+                                ."sstSourceFile seems not to be the expected "
+                                ."disk image $disk_image_path. Cannot determine"
+                                ." the correct disk image");
+                return undef;
+            }            
+        } else
+        {
+            logger("warning","$machine_name: Disk type is neither file nor "
+                            ."network. Cannot determine the correct disk image");
+            return undef;
+        }
+        
         return getValue( $disks[0], "sstDisk");
     }
     

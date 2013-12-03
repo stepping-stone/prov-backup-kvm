@@ -25,6 +25,7 @@ package Provisioning::Backup::KVM::KVMBackup;
 # See the Licence for the specific language governing
 # permissions and limitations under the Licence.
 #
+
 # Copyright (C) 2013 stepping stone GmbH
 #                    Switzerland
 #                    http://www.stepping-stone.ch
@@ -170,7 +171,7 @@ sub backup
 
     # Now we can get all disk images which includes a test whether LDAP and XML
     # are synchronized
-    my @disk_images = getDiskImagesByMachine( $machine, $entry, $machine_name, $backend, $machine_name );
+    my @disk_images = getDiskImagesByMachine( $machine, $entry, $backend, $machine_name );
 
     # Check the return code
     if ( $disk_images[0] =~ m/^\d+$/ && $disk_images[0] == Provisioning::Backup::KVM::Constants::BACKEND_XML_UNCONSISTENCY )
@@ -181,7 +182,19 @@ sub backup
               ."inconsistency before creating a backup");
         return Provisioning::Backup::KVM::Constants::BACKEND_XML_UNCONSISTENCY;
     }
-
+    
+    my $persistent_search = $cfg->val("DiskMapping","PERSISTENTSEARCH");
+    my $persistent_replace = $cfg->val("DiskMapping","PERSISTENTREPLACE");
+    my $template_search = $cfg->val("DiskMapping","TEMPLATESEARCH");
+    my $template_replace = $cfg->val("DiskMapping","TEMPLATEREPLACE");
+    
+    foreach my $disk_image ( @disk_images )
+    {
+        # Do the backward mapping from direct gluster to gluster mount
+        $disk_image =~ s/^$persistent_search/$persistent_replace/;
+        $disk_image =~ s/^$template_search/$template_replace/;
+    }
+    
     # Get and set the intermediate path for the given machine
     $intermediate_path = getIntermediatePath( $disk_images[0], $machine_name, $entry, $backend );
 
@@ -227,7 +240,8 @@ sub backup
 
                                 # Check if there is enough space available to 
                                 # proceed with this machine
-                                my $space = calculateRequiredFreeSpace($machine,
+                                my $space = calculateRequiredFreeSpace($vmm,
+                                                                 $machine,
                                                                  $machine_name,
                                                                  @disk_images );
 
@@ -595,7 +609,8 @@ sub backup
 
                                 # Check if there is enough space available to 
                                 # proceed with this machine
-                                my $space = calculateRequiredFreeSpace($machine,
+                                my $space = calculateRequiredFreeSpace($vmm,
+                                                                 $machine,
                                                                  $machine_name,
                                                                  @disk_images );
 
@@ -687,6 +702,19 @@ sub backup
                                 {
                                     my $merge_done = 0;
                                     my $tries = 0;
+                                    
+                                    # Currently, we need to get the disk image
+                                    # in vda or vdb form, so we need to search
+                                    # the given disk image in the ldap
+                                    $disk_image = getDiskImageFromLDAP( $machine_name,
+                                                                        $disk_image,
+                                                                        $cfg,
+                                                                      );
+                                    
+                                    unless( $disk_image )
+                                    {
+                                        return Provisioning::Backup::KVM::Constants::CANNOT_MERGE_DISK_IMAGES;
+                                    }
 
                                     while ( ! $merge_done && $tries < 9 )
                                     {
@@ -812,7 +840,8 @@ sub backup
 
                                 # Check if there is enough space available to 
                                 # proceed with this machine
-                                my $space = calculateRequiredFreeSpace($machine,
+                                my $space = calculateRequiredFreeSpace($vmm,
+                                                                 $machine,
                                                                  $machine_name,
                                                                  @disk_images );
 
@@ -2393,6 +2422,49 @@ sub returnIntermediatePath
 {
     return $intermediate_path;
 }
+
+################################################################################
+# getDiskImageFromLDAP
+################################################################################
+# Description:
+#  
+################################################################################
+sub getDiskImageFromLDAP
+{
+    my ( $machine_name, $disk_image, $cfg, ) = @_;
+    
+    my $base = "sstVirtualMachine=$machine_name,ou=virtual machines,"
+              .$cfg->val("Database","SERVICE_SUBTREE");
+    
+    my $disk_image_path = $disk_image;
+    
+    # For the current process, we need to undo the reverse mapping
+    my $persistent_search = $cfg->val("DiskMapping","PERSISTENTSEARCH");
+    my $persistent_replace = $cfg->val("DiskMapping","PERSISTENTREPLACE");
+    my $template_search = $cfg->val("DiskMapping","TEMPLATESEARCH");
+    my $template_replace = $cfg->val("DiskMapping","TEMPLATEREPLACE");
+    
+    $disk_image =~ s/^$persistent_replace/$persistent_search/;
+    $disk_image =~ s/^$template_replace/$template_search/;
+    
+    # Now search the disk image in the ldap
+    my @disks = simpleSearch( $base,
+                              "(|(sstSourceName=$disk_image)(sstSourceFile=$disk_image_path))",
+                              "sub",
+                            );
+                            
+    # Check the results
+    if ( @disks == 1 )
+    {
+        return getValue( $disks[0], "sstDisk");
+    }
+    
+    # We have a strange result! 
+    logger("warning","Found ".@disks." disk images with name $disk_image or "
+                    ."path $disk_image_path. Cannot do anything here!");
+    return undef;
+}
+
 
 1;
 

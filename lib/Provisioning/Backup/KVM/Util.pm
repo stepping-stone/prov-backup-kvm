@@ -60,6 +60,9 @@ our @EXPORT = qw(checkRequiredBackupSpace calculateRequiredFreeSpace setPermissi
 
 our $VERSION = '0.01';
 
+use strict;
+use warnings;
+
 # Provisioning libs
 use Provisioning::Backup::KVM::Constants;
 use Provisioning::Log;
@@ -258,7 +261,7 @@ sub getConfigEntry
 
 sub getDiskImagesByMachine
 {
-    my ($machine, $entry, $machine_name, $backend, $machine_name ) = @_;
+    my ($machine, $entry, $backend, $machine_name ) = @_;
 
     # First of all get the disk images from the LDAP, to do that, we need the 
     # grandparent entry which will be the machine entry
@@ -287,24 +290,23 @@ sub getDiskImagesByMachine
     my @backend_source_files = ();
     foreach my $backend_disk ( @backend_disks )
     {
-        my @disks;
         
         # Get the value sstSourceFile and add it to the backend_source_files 
         # array
-        @disks = getValue( $backend_disk,"sstSourceFile");
+        my @files = getValue( $backend_disk,"sstSourceFile");
         
         # Check if the sstSourceFile was set and not empty ( if empty we need 
-        # tp get sstSourceName )
-        if ( @disks )
+        # to get sstSourceName )
+        if ( @files && $files[0] && $files[0] ne "" && $files[0] ne " " )
         {
-            push( @backend_source_files, @disks );
+            push( @backend_source_files, @files );
             next;
         }
         
         # Ok sstSourceFile was not set, so we need to get sstSourceName
-        @disks = getValue( $backend_disk,"sstSourceName");
+        my @disks = getValue( $backend_disk,"sstSourceName");
         
-        if ( @disks )
+        if ( @disks && $disks[0] && $disks[0] ne "" && $disks[0] ne " ")
         {
             push( @backend_source_files, @disks );
             next;
@@ -340,7 +342,8 @@ sub getDiskImagesByMachine
     # Initialize the XML-object from the string
     my $xml = XMLin( $xml_string,
                      KeepRoot => 1,
-                     ForceArray => 1
+                     ForceArray => 1,
+                     KeyAttr => [], 
                    );
 
     # The array to push all disk images from the xml
@@ -436,11 +439,11 @@ sub restoreVMFromStateFile
 
     # Handle the dry_run case, here no files are at retain location so simply 
     # restore the machine form the state file: 
-    if ( $dry_run )
-    {
-        print "DRY-RUN:  virsh restore $state_file\n\n";
-        return Provisioning::Backup::KVM::Constants::SUCCESS_CODE;
-    }
+#    if ( $dry_run )
+#    {
+#        print "DRY-RUN:  virsh restore $state_file\n\n";
+#        return Provisioning::Backup::KVM::Constants::SUCCESS_CODE;
+#    }
 
     # First of all check if the machine was running when it was backed up
     if ( !open( STATE_FILE, "$state_file") )
@@ -522,7 +525,6 @@ sub defineAndStartMachine
     # Define some vars
     my $error = 0;
     my $machine_object;
-    my $machine_name;
 
     # Define the machine, if everything is ok, we get the machine object which
     # we can start afterwards
@@ -575,11 +577,11 @@ sub defineMachine
 
     # Handle the dry-run case, since the XML file is not present, we cannot open
     # and check it, so just print the command
-    if ( $dry_run )
-    {
-        print "DRY-RUN:  virsh define $xml_file\n\n";
-        return Provisioning::Backup::KVM::Constants::SUCCESS_CODE,"";
-    }
+#    if ( $dry_run )
+#    {
+#        print "DRY-RUN:  virsh define $xml_file\n\n";
+#        return Provisioning::Backup::KVM::Constants::SUCCESS_CODE,"";
+#    }
 
     my $xml_fh;
     if ( !open($xml_fh,"$xml_file") )
@@ -657,11 +659,11 @@ sub startMachine
 
     # Handle the dry-run case, since the XML file is not present, we cannot open
     # and check it, so just print the command
-    if ( $dry_run )
-    {
-        print "DRY-RUN:  virsh start <MACHINE_NAME>\n\n";
-        return Provisioning::Backup::KVM::Constants::SUCCESS_CODE;
-    }
+#    if ( $dry_run )
+#    {
+#        print "DRY-RUN:  virsh start <MACHINE_NAME>\n\n";
+#        return Provisioning::Backup::KVM::Constants::SUCCESS_CODE;
+#    }
 
     # First of all test if the machine object is defined
     if ( !$machine_object )
@@ -673,7 +675,6 @@ sub startMachine
     }
 
     # Get the machine name
-    my $machine_name;
     eval
     {
         $machine_name = $machine_object->get_name();
@@ -727,7 +728,7 @@ sub getIntermediatePath
 {
 
     my ( $image_path, $machine_name, $entry, $backend ) = @_;
-
+    
     # Remove the /var/virtualization in front of the path
     $image_path =~ s/\/var\/virtualization\///;
 
@@ -773,7 +774,7 @@ sub getIntermediatePath
 
 sub createDirectory
 {
-    my  ($directory, $config_entry, $machine_name) = @_;
+    my  ($directory, $config_entry, $machine_name, $gateway_connection) = @_;
 
     # Check if the directory is something defined and not an empty string
     if ( $directory eq "" )
@@ -860,7 +861,7 @@ sub createDirectory
 sub setPermissionOnFile
 {
 
-    my ( $config_entry, $file, $machine_name ) = @_;
+    my ( $config_entry, $file, $machine_name, $gateway_connection ) = @_;
 
     my $error = 0;
 
@@ -905,9 +906,10 @@ sub setPermissionOnFile
 sub calculateRequiredFreeSpace
 {
 
-    my ( $machine, $machine_name ,@images ) = @_;
+    my ( $vmm, $machine, $machine_name ,@images ) = @_;
 
     my $total_space = 0;
+    my $libvirt_err;
 
     # Log what we do
     logger("debug","$machine_name: Getting required backup space for machine $machine_name");
@@ -916,10 +918,10 @@ sub calculateRequiredFreeSpace
     foreach my $disk ( @images )
     {
         # Get the disk size and add it to the total space
-        my $info;
+        my $vol;
         eval
         {
-            $info = $machine->get_block_info( $disk );
+            $vol = $vmm->get_storage_volume_by_path( $disk );
         };
 
         # Test if there was an error
@@ -927,16 +929,32 @@ sub calculateRequiredFreeSpace
         if ( $libvirt_err )
         {
             my $error_message = $libvirt_err->message;
-            $error = $libvirt_err->code;
-            logger("error","$machine_name: Could not get disk image information for disk "
-                  ."$disk");
-            logger("error","$machine_name: Error from libvirt (".$error
-                  ."): libvirt says: $error_message" );
+            my $error = $libvirt_err->code;
+            logger("error","$machine_name: Could not get storage volume by path"
+                          .": $disk! Libvirt says: $error_message" );
+            return undef;
+        }
+        
+        # Get the storage information
+        my $info;
+        eval
+        {
+            $info = $vol->get_info();
+        };
+        
+        # Test if there was an error
+        $libvirt_err = $@;
+        if ( $libvirt_err )
+        {
+            my $error_message = $libvirt_err->message;
+            my $error = $libvirt_err->code;
+            logger("error","$machine_name: Could not get storage volume informa"
+                          ."tion! Libvirt says: $error_message" );
             return undef;
         }
 
         my $tmp = 0;
-        $tmp = $info->{physical};
+        $tmp = $info->{allocation};
 
         # If the size is not bigger than 0 we have some strange problem
         unless ( $tmp > 0 )
@@ -957,7 +975,7 @@ sub calculateRequiredFreeSpace
         $mem_info = $machine->get_info();
     };
 
-    my $libvirt_err = $@;
+    $libvirt_err = $@;
                
     # Test if there was an error
     if ( $libvirt_err )

@@ -172,9 +172,7 @@ foreach my $to_replace ( @backup_machines )
     # We know that for this machine the backup subtree with the date leaf exists
     # so we can directly search this entry
     my @machine_object = LDAPSearch("ou=$date,ou=backup,sstVirtualMachine="
-                                   ."$to_replace,ou=virtual machines,ou="
-                                   ."virtualization,ou=services,dc=foss-cloud,"
-                                   ."dc=org",
+                                   ."$to_replace,".$ldap_base,
                                    "base",
                                    "(objectClass=sstProvisioning)",
                                    $ldap_connection

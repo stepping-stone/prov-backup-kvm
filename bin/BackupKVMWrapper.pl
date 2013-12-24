@@ -154,6 +154,9 @@ will backup ALL machines on your system.
 
 =cut
 
+use warnings;
+use strict;
+
 use Getopt::Long;
 Getopt::Long::Configure("no_auto_abbrev");
 use Config::IniFiles;
@@ -218,6 +221,7 @@ our $TransportAPI = $cfg->val("Service","TRANSPORTAPI");
 
 our $global_cfg = $cfg;
 our $syslog_name = $cfg->val("Service","SYSLOG");
+our $service = $cfg->val("Service","SERVICE");
 our $opt_R = $opts{'dryrun'};
 
 our $gateway_connection = 1;
@@ -227,6 +231,7 @@ load "Provisioning::Log", ":all";
 load "Provisioning::Backup::KVM", ':all';
 load "Provisioning::Backend::$backend", ":all";
 load "Provisioning::Backup::KVM::KVMBackup",':all';
+load "Provisioning::Backup::KVM::Util",':all';
 load "Provisioning::TransportAPI::$TransportAPI",':all';
 
 # Try to lock the script
@@ -257,22 +262,31 @@ unless ( defined($backend_connection) )
 }
 
 # Generate the array machines list according to the list parameter
-my @machines_list;
-@machines_list = generateMachineList( $opts{'include'}, 1 ) if ( defined($opts{'include'}) );
-@machines_list = generateMachineList( $opts{'exclude'}, 0) if ( defined($opts{'exclude'}) );
+my @machines_name_list;
+@machines_name_list = generateMachineList( $opts{'include'}, 1 ) if ( defined($opts{'include'}) );
+@machines_name_list = generateMachineList( $opts{'exclude'}, 0) if ( defined($opts{'exclude'}) );
 
 # Log which machines are going to be backed up
-logger("debug","Backing up the following machines: @machines_list");
+logger("debug","Backing up the following machines: @machines_name_list");
+
+# Map the machines name to the backend object
+my $backend_mapping = {};
+foreach my $machine_name (@machines_name_list)
+{
+    # Get the LDAP object for the machine with name $machine_name
+    my $backend_object = getBackendObjectByMachineName($machine_name);
+    if ( $backend_object )
+    {
+        $backend_mapping->{$machine_name} = $backend_object;
+    }
+}
+
 
 # Write the backup date to the server
 my $backup_date = strftime("%Y%m%d%H%M%S",localtime());
-modifyAttribute( "General",
-                 "Backup_date",
-                 $backup_date,
-                 $backend_connection);
 
 # Backup the machines
-backupMachines( @machines_list );
+backupMachines( @machines_name_list );
    
 logger("info","Backup-KVM-Wrapper script finished");
 
@@ -476,59 +490,66 @@ sub generateMachineList
 ################################################################################
 sub backupMachines
 {
-    my @machines = @_;
+    my @machine_names = @_;
 
     # Check hash if machine could successfully be snapshotted
     my %snapshot_success = ();
 
     # Go through all machines in the list passed and execute the snapshot method
-    foreach my $machine ( @machines ) 
+    foreach my $machine_name ( @machine_names ) 
     {
+        # Check if the backend object was found, if not, skip it
+        unless ( $backend_mapping->{$machine_name} )
+        {
+            $snapshot_success{$machine_name} = "no";
+            next;
+        }
+        
         # Log which machine we are processing
-        logger("debug","Snapshotting machine $machine");
+        logger("debug","Snapshotting machine $machine_name");
 
         # At start error is 0 for every machine 
         my $error = 0;
 
-        $error = processEntry($machine,"snapshot");
+        $error = processEntry($backend_mapping->{$machine_name},"snapshot");
 
         # Test if there was an error
         if ( $error )
         {
             logger("error","Snapshot process returned error code: $error"
                   ." Will not call merge and retain processes for machine "
-                  ."$machine.") if $error != -1;
-            $snapshot_success{$machine} = "no";
+                  ."$machine_name.") if $error != -1;
+            $snapshot_success{$machine_name} = "no";
             next;
         }
 
-        $snapshot_success{$machine} = "yes";
-        logger("debug","Machine $machine successfully snapshotted");
+        $snapshot_success{$machine_name} = "yes";
+        logger("debug","Machine $machine_name successfully snapshotted");
 
     } # End of for each
 
     # After all machines have been snapshotted, we can merge and retain them
-    foreach my $machine ( @machines )
+    foreach my $machine_name ( @machine_names )
     {
         
         # Check if the snapshot for this machine was successfull
-        next if $snapshot_success{$machine} eq "no";
+        next if $snapshot_success{$machine_name} eq "no";
 
-        logger("debug","Processing (merge and retain) machine $machine");
+        logger("debug","Processing (merge and retain) machine $machine_name");
 
         # Do the merge and retain
-        $error = processEntry($machine,"merge");
+        my $error = processEntry($backend_mapping->{$machine_name},"merge");
 
         # Test if there was an error
         if ( $error )
         {
             logger("error","Merge process returned error code: $error"
                   ." Will not call retain processes for machine "
-                  ."$machine.");
+                  ."$machine_name.");
             next;
         }
 
-        $error = processEntry($machine,"retain");
+        $error = processEntry($backend_mapping->{$machine_name},"retain");
 
         # Test if there was an error
         if ( $error )
@@ -538,9 +559,9 @@ sub backupMachines
             next;
         }
 
-        checkIterations($machine);
+        checkIterations($machine_name);
 
-        logger("debug","Machine $machine processed");
+        logger("debug","Machine $machine_name processed");
 
     }
 
@@ -554,12 +575,25 @@ sub backupMachines
 ################################################################################
 sub checkIterations
 {
-    my $machine = shift;
+    my $machine_name = shift;
 
     my @iterations;
+    
+    # Get the configuration entry
+    my $config_entry = getConfigEntry( $backend_mapping->{$machine_name}, 
+                                       $cfg, 
+                                       $machine_name );
+    
+    # Check if the entry was found
+    if ( !$config_entry || $config_entry =~ m/^\d+$/ )
+    {
+        logger("error","Config entry not found, cannot check the iterations "
+              ."for machine $machine_name");
+        return $config_entry;
+    }
 
     # Get the backup directory for the machine
-    my $backup_directory = getValue($machine, "sstBackupRootDirectory");
+    my $backup_directory = getValue($config_entry, "sstBackupRootDirectory");
 
     # Remove the file:// in front
     $backup_directory =~ s/file\:\/\///;
@@ -575,7 +609,17 @@ sub checkIterations
     }
 
     # As long as we have more iterations as we should have, delete the oldest:
-    while ( @iterations > getValue( $machine, "SSTBACKUPNUMBEROFITERATIONS") )
+    my $nmb_of_iterations = getValue( $config_entry, "sstBackupNumberOfIterations");
+    
+    # Check for iterations
+    unless ( $nmb_of_iterations )
+    {
+        logger("warning","Could not determine number of iterations to keep, "
+              ."taking default one: 1");
+        $nmb_of_iterations = 1;
+    }
+    
+    while ( @iterations > $nmb_of_iterations )
     {
         # Set the oldest date to year 9000 to make sure that whatever date will
         # follow is older
@@ -596,7 +640,6 @@ sub checkIterations
             {
                 $index++;
             }
-            
         }
 
         # Delete the oldest iteration from the array: 
@@ -614,8 +657,27 @@ sub checkIterations
         {
             logger("debug","Oldest iteration successfully deleted\n");
         }
+    }
+}
 
+sub getBackendObjectByMachineName
+{
+    my $machine_name = shift;
+
+    # Search the machine in the LDAP
+    my @results = simpleSearch( "ou=backup,sstVirtualMachine=$machine_name,ou=virtual machines,".$cfg->val("Database","SERVICE_SUBTREE"),
+                                "(&(objectClass=sstProvisioning)(sstProvisioningState=0))",
+                                "sub" );
+
+    # We expect exactly one result
+    if ( @results != 1 )
+    {
+        logger("error","Cannot clearly identify machine $machine_name in the "
+              ."backend. Found ".@results." entries! Will NOT backup the "
+              ."machine $machine_name");
+        return undef;
     }
 
-
+    # If one result was found, return it
+    return $results[0];
 }

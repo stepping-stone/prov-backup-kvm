@@ -47,6 +47,8 @@ my $ldap_connection = LDAPConnect( $ldap_server,
                                    $cfg->val("LDAP","Username"),
                                    $cfg->val("LDAP","Password") 
                                   );
+                                  
+my $ldap_base = $cfg->val("LDAP","Base");
 
 # If the connection could not be established log it and exit
 unless ( $ldap_connection )
@@ -63,8 +65,7 @@ my $date = strftime("%Y%m%dT%H%M%SZ",gmtime());
 my $hostname = $cfg->val("Backup","Hostname") ;
 
 # Get ALL machines on the THIS host
-my @all_machines = LDAPSearch("ou=virtual machines,ou=virtualization,"
-                             ."ou=services,dc=foss-cloud,dc=org",
+my @all_machines = LDAPSearch($ldap_base,
                               "sub",
                               "(sstNode=$hostname)",
                               $ldap_connection

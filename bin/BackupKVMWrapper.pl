@@ -623,18 +623,23 @@ sub checkIterations
     {
         # Set the oldest date to year 9000 to make sure that whatever date will
         # follow is older
-        my $oldest = "90000101000000";
+        my $oldest;
+        my $oldest_date = "90000101000000";
         my $oldest_index = 0;
-        my $index;
+        my $index = 0;
 
         # Go through all iterations an check if the current iteration is older 
         # than the current oldest one. If yes, set the current iteration as the
         # oldest iteration.
         foreach my $iteration (@iterations)
         {
-            if ( $iteration < $oldest )
+            # Remove all non digits form the iteration
+            my $iteration_date = $iteration;
+            $iteration_date =~ s/\D//g;
+            if ( $iteration_date < $oldest_date )
             {
                 $oldest = $iteration;
+                $oldest_date = $iteration_date;
                 $oldest_index = $index;
             } else
             {

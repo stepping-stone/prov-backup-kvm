@@ -36,7 +36,7 @@ use Config::IniFiles;
 my $debug = 1;
 
 # Get the configuration file
-my $cfg = new Config::IniFiles(-file=> "/etc/Provisioning/LDAPKVMWrapper.conf");
+my $cfg = new Config::IniFiles(-file=> "/etc/Provisioning/Backup/LDAPKVMWrapper.conf");
 
 # Genereate the List of all machines to backup
 
